@@ -17,10 +17,8 @@ def parse_input_json(img_rect_json):
     return img, rects
 
 
-def get_object_coordinates(img, bg_w, bg_h,  current_object,  objects):
+def get_background_coordinates(img, bg_w, bg_h, current_object, objects):
     flag = True
-    left = 0
-    top = 0
     if current_object['y'] >= bg_h:
         for object in objects:
             if object['x'] + object['width'] > current_object['x'] or object['x'] < current_object['x'] + current_object['width']:
@@ -33,7 +31,8 @@ def get_object_coordinates(img, bg_w, bg_h,  current_object,  objects):
             left = current_object['x']
             top = current_object['y'] - bg_h
             return left, top
-    elif img.width - current_object['x'] - current_object['width'] >= bg_w:
+    flag = True
+    if img.width - current_object['x'] - current_object['width'] >= bg_w:
         for object in objects:
             if object['y'] + object['height'] > current_object['y'] or object['y'] < current_object['y'] + current_object['height']:
                 if object['x'] > current_object['x'] + current_object['width']:
@@ -45,7 +44,8 @@ def get_object_coordinates(img, bg_w, bg_h,  current_object,  objects):
             left = current_object['x'] + current_object['width']
             top = current_object['y']
             return left, top
-    elif img.height - current_object['y'] - current_object['height'] >= bg_h:
+    flag = True
+    if img.height - current_object['y'] - current_object['height'] >= bg_h:
         for object in objects:
             if object['x'] + object['width'] > current_object['x'] or object['x'] < current_object['x'] + current_object['width']:
                 if object['y'] > current_object['y'] + current_object['height']:
@@ -56,7 +56,9 @@ def get_object_coordinates(img, bg_w, bg_h,  current_object,  objects):
         if flag:
             left = current_object['x']
             top = current_object['y'] + current_object['height']
-    elif current_object['x'] >= bg_w:
+            return left, top
+    flag = True
+    if current_object['x'] >= bg_w:
         for object in objects:
             if object['y'] + object['height'] > current_object['y'] or object['y'] < current_object['y'] + current_object['height']:
                 if object['x'] + object['width'] < current_object['x']:
@@ -67,12 +69,12 @@ def get_object_coordinates(img, bg_w, bg_h,  current_object,  objects):
         if flag:
             left = current_object['x'] - bg_w
             top = current_object['y']
-
-    return left, top
+            return left, top
+    return 0, 0
 
 
 def save_background_in_image(img, objects, object, number_object, bg_w, bg_h):
-    left, top = get_object_coordinates(img, bg_w, bg_h, object, objects)
+    left, top = get_background_coordinates(img, bg_w, bg_h, object, objects)
     print('image size:', img.size, 'background coordinates:', left, top)
     bg = img.crop((
         left,
@@ -101,8 +103,8 @@ for object in objects:
     object_height = object['height']
     print('object: height: ' + str(object_height) + " width: " + str(object_width))
 
-    background_width = round(object_width * 0.3)
-    background_height = round(object_height * 0.3)
+    background_width = round(object_width * 0.25)
+    background_height = round(object_height * 0.25)
 
     print('background size: ', background_width, background_height)
 
