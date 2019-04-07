@@ -130,19 +130,31 @@ def find_object_in_image():
                 classes = detection_graph.get_tensor_by_name('detection_classes:0')
                 num_detections = detection_graph.get_tensor_by_name('num_detections:0')
                 # Actual detection.
-                (boxes, scores, classes, num_detections) = sess.run(
-                    [boxes, scores, classes, num_detections],
+                out = sess.run(
+                    [num_detections, scores, boxes, classes],
                     feed_dict={image_tensor: image_np_expanded})
                 # Visualization of the results of a detection.
                 vis_util.visualize_boxes_and_labels_on_image_array(
                     image_np,
-                    np.squeeze(boxes),
-                    np.squeeze(classes).astype(np.int32),
-                    np.squeeze(scores),
+                    np.squeeze(out[2][0]),
+                    np.squeeze(out[3][0]).astype(np.int32),
+                    np.squeeze(out[1][0]),
                     category_index,
                     use_normalized_coordinates=True,
                     line_thickness=8)
                 cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+
+                # Visualize detected bounding boxes.
+                print([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
+                num_detections = int(out[0][0])
+                #for i in range(num_detections):
+                for index, value in enumerate(out[3][0]):
+                    if out[1][0, index] > 0.5:
+                        classId = int(out[3][0][index])
+                        score = float(out[1][0][index])
+                        box = [float(v) for v in out[2][0][index]]
+                        print('classId', classId, 'score', score, 'box', box)
+
                 if cv2.waitKey(25) & 0xFF == ord('q'):
                     cv2.destroyAllWindows()
                     break

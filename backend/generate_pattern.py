@@ -2,22 +2,20 @@ from backend.makeGif import *
 from backend.patchBasedTextureSynthesis import *
 from PIL import Image
 
-exampleMapPath = "pattern.jpg"
+exampleMapPath = "backend/pattern.jpg"
 
 im = Image.open(exampleMapPath)
-img = im.resize((200, 200), Image.ANTIALIAS)
-img.save("pattern.jpg")
+img = im.resize((150, 150), Image.ANTIALIAS)
+img.save("backend/pattern.jpg")
 
 #PARAMS
-outputPath = "out/1/"
+outputPath = "backend/out/1/"
 patchSize = 30 #size of the patch (without the overlap)
-overlapSize = 20 #the width of the overlap region
+overlapSize = 10 #the width of the overlap region
 outputSize = [300, 300]
 
 pbts = patchBasedTextureSynthesis(exampleMapPath, outputPath, outputSize, patchSize, overlapSize, in_windowStep=5,
-                                  in_mirror_hor=True, in_mirror_vert=True, in_shapshots=True)
+                                  in_mirror_hor=True, in_mirror_vert=True, in_shapshots=False)
 pbts.resolveAll()
 
-gifOutputPath = "out/outGif.gif"
-
-makeGif(outputPath, gifOutputPath, frame_every_X_steps=1, repeat_ending=5)
+gifOutputPath = "backend/out/outGif.gif"

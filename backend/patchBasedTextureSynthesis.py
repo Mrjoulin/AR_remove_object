@@ -1,4 +1,5 @@
 #imports
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -76,8 +77,11 @@ class patchBasedTextureSynthesis:
         #choose random valid patch
         probabilities = self.distances2probability(dist, self.PARM_truncation, self.PARM_attenuation)
 
-        chosenPatchId = np.random.choice(ind, 1, p=probabilities)
-        
+        try:
+            chosenPatchId = np.random.choice(ind, 1, p=probabilities)
+        except ValueError:
+            chosenPatchId = np.random.choice(ind, 1, p=[1.])
+
         #update canvas
         blend_top = (overlapArea_Top is not None)
         blend_left = (overlapArea_Left is not None)
@@ -222,6 +226,9 @@ class patchBasedTextureSynthesis:
         
     def distances2probability(self, distances, PARM_truncation, PARM_attenuation):
 
+        print('dist -', distances)
+        if distances == []:
+            distances.append(1.)
         probabilities = 1 - distances / np.max(distances)  
         probabilities *= (probabilities > PARM_truncation)
         probabilities = pow(probabilities, PARM_attenuation) #attenuate the values

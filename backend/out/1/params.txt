@@ -1,0 +1,4 @@
+PatchSize: 30 
+OverlapSize: 10 
+Mirror Vert: 1 
+Mirror Hor: 1
