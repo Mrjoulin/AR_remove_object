@@ -13,12 +13,12 @@ from distutils.version import StrictVersion
 from collections import defaultdict
 from io import StringIO
 from matplotlib import pyplot as plt
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from object_detection.utils import label_map_util
-
 from object_detection.utils import visualization_utils as vis_util
 
+from backend import source
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -102,8 +102,8 @@ def run_inference_for_single_image(image, graph):
 
 def find_object_in_image():
     cap = cv2.VideoCapture(0)
-    PATH_TO_FROZEN_GRAPH = "./frozen_inference_graph.pb"
-    PATH_TO_LABELS = './mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/mscoco_label_map.pbtxt'
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -115,10 +115,12 @@ def find_object_in_image():
 
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
+    class_to_hide = []
     with detection_graph.as_default():
         with tf.Session(graph=detection_graph) as sess:
             while True:
                 ret, image_np = cap.read()
+                ret, initial_image = cap.read()
                 # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
                 image_np_expanded = np.expand_dims(image_np, axis=0)
                 image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
@@ -142,23 +144,60 @@ def find_object_in_image():
                     category_index,
                     use_normalized_coordinates=True,
                     line_thickness=8)
-                cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+
+                num_detections = int(out[0][0])
+                im_height, im_width = image_np.shape[:2]
+                objects = []
+                objects_class = []
+                for i in range(num_detections):
+                    if out[1][0, i] > 0.5:
+                        position = out[2][0][i]
+                        (xmin, xmax, ymin, ymax) = (
+                            position[1] * im_width, position[3] * im_width, position[0] * im_height,
+                            position[2] * im_height)
+
+                        width_object = xmax - xmin
+                        height_object = ymax - ymin
+                        objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
+
 
                 # Visualize detected bounding boxes.
                 print([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
-                num_detections = int(out[0][0])
-                #for i in range(num_detections):
+
+                # for i in range(num_detections):
                 for index, value in enumerate(out[3][0]):
                     if out[1][0, index] > 0.5:
                         classId = int(out[3][0][index])
                         score = float(out[1][0][index])
                         box = [float(v) for v in out[2][0][index]]
+                        objects_class.append(classId)
+
                         print('classId', classId, 'score', score, 'box', box)
+
+                        if classId in class_to_hide:
+                            image = Image.fromarray(image_np)
+                            backgrond = Image.open(f'backend/out/1/out_{str(classId)}.jpg')
+                            left = round(im_width * box[1])
+                            top = round(im_height * box[0])
+                            resize_width = round(im_width * (box[3] - box[1]))
+                            resize_height = round(im_height * (box[2] - box[0]))
+                            normal_bg = backgrond.resize((resize_width, resize_height), Image.ANTIALIAS)
+                            image.paste(normal_bg, (left, top))
+                            image_np = np.array(image)
+
+                cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+
+                if cv2.waitKey(1) & 0xFF == ord('r'):
+                    source.get_image_background_fragment(initial_image, objects, objects_class)
+                    for index, value in enumerate(out[3][0]):
+                        if out[1][0, index] > 0.5:
+                            classId = int(out[3][0][index])
+                            class_to_hide.append(classId)
+
+                if cv2.waitKey(2) & 0xFF == ord('c'):
+                    class_to_hide = []
 
                 if cv2.waitKey(25) & 0xFF == ord('q'):
                     cv2.destroyAllWindows()
                     break
 
-
-if __name__ == '__main__':
-    find_object_in_image()

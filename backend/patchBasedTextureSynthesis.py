@@ -16,7 +16,8 @@ from IPython.display import clear_output, display
 
 class patchBasedTextureSynthesis:
     
-    def __init__(self, exampleMapPath, in_outputPath, in_outputSize, in_patchSize, in_overlapSize, in_windowStep = 5, in_mirror_hor = True, in_mirror_vert = True, in_shapshots = True):
+    def __init__(self, exampleMapPath, in_outputPath, in_outputSize, in_patchSize, in_overlapSize, number_of_image,
+                 in_windowStep = 5, in_mirror_hor = True, in_mirror_vert = True, in_shapshots = True):
         self.exampleMap = self.loadExampleMap(exampleMapPath)
         self.snapshots = in_shapshots
         self.outputPath = in_outputPath
@@ -25,6 +26,7 @@ class patchBasedTextureSynthesis:
         self.overlapSize = in_overlapSize
         self.mirror_hor = in_mirror_hor
         self.mirror_vert = in_mirror_vert
+        self.number_of_image = number_of_image
         self.total_patches_count = 0 #excluding mirrored versions
         self.windowStep = 5
         self.iter = 0
@@ -51,7 +53,7 @@ class patchBasedTextureSynthesis:
         if not self.snapshots:
             img = Image.fromarray(np.uint8(self.canvas*255))
             img = img.resize((self.outputSize[0], self.outputSize[1]), resample=0, box=None)
-            img.save(self.outputPath + 'out.jpg')
+            img.save(self.outputPath + 'out_' + str(self.number_of_image) + '.jpg')
         else:
             self.visualize([0,0], [], [], showCandidates=False)
             
@@ -69,18 +71,19 @@ class patchBasedTextureSynthesis:
         overlapArea_Left = self.getOverlapAreaLeft(coord)
         #find most similar patch from the examples
         dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
-        
+        while len(dist) == 0:
+            dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
+            print('Another dist')
         if self.mirror_hor or self.mirror_vert:
             #check that top and left neighbours are not mirrors
             dist, ind = self.checkForMirrors(dist, ind, coord)
 
         #choose random valid patch
         probabilities = self.distances2probability(dist, self.PARM_truncation, self.PARM_attenuation)
-
         try:
             chosenPatchId = np.random.choice(ind, 1, p=probabilities)
         except ValueError:
-            chosenPatchId = np.random.choice(ind, 1, p=[1.])
+            chosenPatchId = np.random.choice(ind, 1, p=np.array([1.0]))
 
         #update canvas
         blend_top = (overlapArea_Top is not None)
@@ -227,8 +230,8 @@ class patchBasedTextureSynthesis:
     def distances2probability(self, distances, PARM_truncation, PARM_attenuation):
 
         print('dist -', distances)
-        if distances == []:
-            distances.append(1.)
+        if len(distances) == 0:
+            distances = [1.]
         probabilities = 1 - distances / np.max(distances)  
         probabilities *= (probabilities > PARM_truncation)
         probabilities = pow(probabilities, PARM_attenuation) #attenuate the values

@@ -1,7 +1,7 @@
 import json
 import base64
 from PIL import Image
-
+from backend.generate_pattern import get_generative_background
 
 # input json:
 # {
@@ -82,31 +82,30 @@ def save_background_in_image(img, objects, object, number_object, bg_w, bg_h):
         bg_w + left,
         bg_h + top))
 
-    bg.save(f'background/background_{str(number_object)}.png')
-    return bg
+    path = f'backend/background/background_{str(number_object)}.png'
+    bg.save(path)
+    return path
 
 
-def post_background_fragment(bg_fragment):
-    pass
+def get_image_background_fragment(_img, objects, objects_class):
+    #test_json = open('test.json', 'r').read()
+    #_img, objects = parse_input_json(test_json)
+    #filename = 'object.jpg'  # I assume you have a way of picking unique filenames
+    #with open(filename, 'wb') as f:
+    #   f.write(_img)
+    img = Image.fromarray(_img)
 
+    number_object = 0
+    for object, object_class in zip(objects, objects_class):
+        object_width = object['width']
+        object_height = object['height']
+        print('object: height: ' + str(object_height) + " width: " + str(object_width))
 
-test_json = open('test.json', 'r').read()
-img_, objects = parse_input_json(test_json)
-filename = 'object.jpg'  # I assume you have a way of picking unique filenames
-with open(filename, 'wb') as f:
-    f.write(img_)
-img = Image.open(filename)
+        background_width = round(object_width * 0.25)
+        background_height = round(object_height * 0.25)
 
-number_object = 0
-for object in objects:
-    object_width = object['width']
-    object_height = object['height']
-    print('object: height: ' + str(object_height) + " width: " + str(object_width))
+        print('background size: ', background_width, background_height)
 
-    background_width = round(object_width * 0.25)
-    background_height = round(object_height * 0.25)
-
-    print('background size: ', background_width, background_height)
-
-    background_fragment = save_background_in_image(img, objects, object, number_object, background_width, background_height)
-    number_object += 1
+        path = save_background_in_image(img, objects, object, number_object, background_width, background_height)
+        get_generative_background(path, object_width, object_height, object_class)
+        number_object += 1
