@@ -1,5 +1,6 @@
 #imports
 import math
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -73,7 +74,7 @@ class patchBasedTextureSynthesis:
         dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
         while len(dist) == 0:
             dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
-            print('Another dist')
+            logging.info('Another dist')
         if self.mirror_hor or self.mirror_vert:
             #check that top and left neighbours are not mirrors
             dist, ind = self.checkForMirrors(dist, ind, coord)
@@ -83,7 +84,8 @@ class patchBasedTextureSynthesis:
         try:
             chosenPatchId = np.random.choice(ind, 1, p=probabilities)
         except ValueError:
-            chosenPatchId = np.random.choice(ind, 1, p=np.array([1.0]))
+            logging.info('chosenPatchId error refused')
+            chosenPatchId = np.random.choice(ind, 1, p=np.array([1., 0., 0., 0., 0.]))
 
         #update canvas
         blend_top = (overlapArea_Top is not None)
@@ -118,9 +120,9 @@ class patchBasedTextureSynthesis:
         vis[offset_h:offset_h+h, canvasSize[1]+offset_w:canvasSize[1]+offset_w+w] = exampleResized
         
         #show live update
-        plt.imshow(vis)
-        clear_output(wait=True)
-        display(plt.show())
+        #plt.imshow(vis)
+        #clear_output(wait=True)
+        #display(plt.show())
         
         if self.snapshots:
             img = Image.fromarray(np.uint8(vis*255))
@@ -228,8 +230,6 @@ class patchBasedTextureSynthesis:
 
         
     def distances2probability(self, distances, PARM_truncation, PARM_attenuation):
-
-        print('dist -', distances)
         if len(distances) == 0:
             distances = [1.]
         probabilities = 1 - distances / np.max(distances)  
@@ -307,7 +307,7 @@ class patchBasedTextureSynthesis:
         
         searchKernelSize = self.patchSize + 2 * self.overlapSize
         
-        result = view_as_windows(self.exampleMap, [searchKernelSize, searchKernelSize, 3] , self.windowStep)
+        result = view_as_windows(self.exampleMap, [searchKernelSize, searchKernelSize, 3], self.windowStep)
         shape = np.shape(result)
         result = result.reshape(shape[0]*shape[1], searchKernelSize, searchKernelSize, 3)
         
@@ -345,8 +345,8 @@ class patchBasedTextureSynthesis:
         filledMap = np.zeros((num_patches_X, num_patches_Y)) #map showing which patches have been resolved
         idMap = np.zeros((num_patches_X, num_patches_Y)) - 1 #stores patches id
         
-        print("modified output size: ", np.shape(canvas))
-        print("number of patches: ", np.shape(filledMap)[0])
+        logging.info("modified output size: " + str(np.shape(canvas)))
+        logging.info("number of patches: " + str(np.shape(filledMap)[0]))
 
         return canvas, filledMap, idMap
 
@@ -359,7 +359,11 @@ class patchBasedTextureSynthesis:
         #translate Patch coordinate into Canvas coordinate
         x_range = self.patchCoord2canvasCoord(coord_X)
         y_range = self.patchCoord2canvasCoord(coord_Y)
-        examplePatch = self.examplePatches[inputPatchId]
+        try:
+            examplePatch = self.examplePatches[inputPatchId]
+        except IndexError:
+            logging.info('EXAMPLE PATH ERROR')
+            return
         if blendLeft:
             canvasOverlap = self.canvas[x_range[0]:x_range[1], y_range[0]:y_range[0]+self.overlapSize]
             examplePatchOverlap = np.copy(examplePatch[0][:, 0:self.overlapSize])
