@@ -3,7 +3,11 @@ import logging
 import base64
 import json
 from flask import Flask, request, jsonify, make_response
+from werkzeug.contrib.fixers import ProxyFix
+
+# local modules
 from backend.source import get_image_background_fragment
+
 
 app = Flask(__name__)
 
@@ -65,3 +69,8 @@ def make_api_request(method_name, **kwargs):
     if not response['success']:
         raise Exception(response['payload']['message'])
     return response
+
+
+app.wsgi_app = ProxyFix(app.wsgi_app)
+if __name__ == '__main__':
+    app.run()
