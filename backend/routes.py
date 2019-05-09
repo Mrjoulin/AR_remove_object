@@ -20,6 +20,12 @@ app = Flask(__name__)
 
 
 @app.route('/')
+def init():
+    logging.info('Run init page')
+    return "Init page"
+
+
+@app.route('/test')
 def test():
     test_json = json.loads(open('backend/test.json', 'r').read())
     imgs = make_api_request('get_pattern', img=test_json['img'], objects=test_json['objects'],
@@ -63,7 +69,7 @@ def make_api_response(payload, code=200):
 
 
 def make_api_request(method_name, **kwargs):
-    url = "http://localhost:5000/" + method_name
+    url = "https://arremover.herokuapp.com/" + method_name
     response = requests.post(url, json=kwargs).json()
     logging.debug(str(response))
     if not response['success']:
