@@ -1,0 +1,7 @@
+Flask
+logging
+requests
+numpy
+Pillow
+scikit-learn
+scikit-image
