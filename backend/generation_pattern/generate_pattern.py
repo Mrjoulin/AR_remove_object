@@ -15,22 +15,22 @@ def get_generative_background(path_to_fragment, width_object, height_object, num
     logging.info('Image mode: %s' % img.mode)
     img.save(pattern_path)
 
-    #PARAMS
-    outputPath = "backend/out/1/"
+    # PARAMS
+    output_path = "backend/out/1/"
     # size of the patch (without the overlap)
-    patchSize = int((bg_side if bg_side < min_size else min_size) * 0.4)
+    patch_size = int((bg_side if bg_side < min_size else min_size) * 0.4)
     # the width of the overlap region
-    overlapSize = patchSize // 4 if patchSize // 4 > 0 else 1
+    overlap_size = patch_size // 4 if patch_size // 4 > 0 else 1
 
-    outputSize = [int(width_object if width_object < height_object else height_object),
-                  int(width_object if width_object < height_object else height_object)]
+    output_size = [int(width_object if width_object < height_object else height_object),
+                   int(width_object if width_object < height_object else height_object)]
 
     logging.info('Generate pattern info: background squere size - {bgSize}, outputPath - {path}, patchSize - '
-                 '{patchSize}, overlapSize {overlap}, outputSize - {output}'
-                 .format(bgSize=bg_side, path=outputPath, patchSize=patchSize, overlap=overlapSize, output=outputSize))
+                 '{size}, overlapSize {overlap}, outputSize - {output}'
+                 .format(bgSize=bg_side, path=output_path, size=patch_size, overlap=overlap_size, output=output_size))
 
-    pbts = patchBasedTextureSynthesis(exampleMapPath=pattern_path, in_outputPath=outputPath,
-                                      in_outputSize=outputSize, in_patchSize=patchSize, in_overlapSize=overlapSize,
+    pbts = patchBasedTextureSynthesis(exampleMapPath=pattern_path, in_outputPath=output_path,
+                                      in_outputSize=output_size, in_patchSize=patch_size, in_overlapSize=overlap_size,
                                       number_of_image=number_of_image,
                                       in_windowStep=5, in_mirror_hor=False, in_mirror_vert=False, in_shapshots=False)
     pbts.resolveAll()

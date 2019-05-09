@@ -2,7 +2,6 @@ import requests
 import logging
 import base64
 import json
-from PIL import Image
 from flask import Flask, request, jsonify, make_response
 from backend.source import get_image_background_fragment
 
@@ -49,7 +48,7 @@ def get_pattern():
     for class_object in class_objects:
         with open('backend/out/1/out_%s.jpg' % str(class_object), 'rb') as image_file:
             encoded_string = base64.b64encode(image_file.read())
-            patterns[str(class_object)] = str(encoded_string)
+            patterns[str(class_object)] = encoded_string.decode("utf-8")
 
     return make_api_response(patterns)
 
