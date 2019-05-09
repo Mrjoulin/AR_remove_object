@@ -1,5 +1,4 @@
 Flask
-logging
 requests
 numpy
 Pillow
