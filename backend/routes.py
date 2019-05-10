@@ -69,7 +69,7 @@ def make_api_response(payload, code=200):
 
 
 def make_api_request(method_name, **kwargs):
-    url = "https://arremover.herokuapp.com/" + method_name
+    url = "https://v125219.hosted-by-vdsina.ru/" + method_name
     response = requests.post(url, json=kwargs).json()
     logging.debug(str(response))
     if not response['success']:
