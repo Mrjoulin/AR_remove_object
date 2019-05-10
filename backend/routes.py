@@ -69,7 +69,7 @@ def make_api_response(payload, code=200):
 
 
 def make_api_request(method_name, **kwargs):
-    url = "https://v125219.hosted-by-vdsina.ru/" + method_name
+    url = "http://94.103.94.202/" + method_name
     response = requests.post(url, json=kwargs).json()
     logging.debug(str(response))
     if not response['success']:
@@ -79,4 +79,5 @@ def make_api_request(method_name, **kwargs):
 
 app.wsgi_app = ProxyFix(app.wsgi_app)
 if __name__ == '__main__':
+    # print(requests.get("https://94.103.94.1/"))
     app.run()
