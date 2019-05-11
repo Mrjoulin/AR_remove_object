@@ -37,10 +37,10 @@ def test():
 def get_pattern():
     if request.is_json:
         json = request.get_json()
-        logging.info('Get json: %s' % json)
+        logging.info('Json received')
     else:
         logging.error('BAD REQUEST JSON')
-        return make_api_response({}, code=405)
+        return make_api_response({'message': 'No Content'}, code=204)
 
     if 'img' in json and isinstance(json['img'], str) and \
             'objects' in json and isinstance(json['objects'], list) and \
@@ -50,29 +50,32 @@ def get_pattern():
         objects = json['objects']
         class_objects = json['class_objects']
     else:
-        return make_api_response({}, code=405)
+        return make_api_response({'message': 'Partial Content'}, code=206)
 
     get_image_background_fragment(img, objects, class_objects)
 
     patterns = {}
     for class_object in class_objects:
-        with open('backend/out/1/out_%s.jpg' % str(class_object), 'rb') as image_file:
-            encoded_string = base64.b64encode(image_file.read())
-            patterns[str(class_object)] = encoded_string.decode("utf-8")
+        try:
+            with open('backend/out/1/out_%s.jpg' % str(class_object), 'rb') as image_file:
+                encoded_string = base64.b64encode(image_file.read())
+                patterns[str(class_object)] = encoded_string.decode("utf-8")
+        except FileNotFoundError:
+            return make_api_response({'message': 'Internal Server Error'}, code=500)
 
     return make_api_response(patterns)
 
 
 def make_api_response(payload, code=200):
-    success = code == 200
-    return make_response(jsonify({'success': success, 'payload': payload}), code)
+    return make_response(jsonify({'code': code, 'payload': payload}), code)
 
 
 def make_api_request(method_name, **kwargs):
-    url = "http://94.103.94.202/" + method_name
+    url = "http://localhost:5000/" + method_name
+    # url = "http://94.103.94.220:5000/" + method_name
     response = requests.post(url, json=kwargs).json()
-    logging.debug(str(response))
-    if not response['success']:
+    logging.info(str(response))
+    if response['code'] != 200:
         raise Exception(response['payload']['message'])
     return response
 
