@@ -1,6 +1,4 @@
-
-#!/usr/bin/env python
-
+# !/usr/bin/env python
 '''
 Multitarget planar tracking
 ==================
@@ -20,11 +18,6 @@ Select a textured planar object to track by drawing a box with a mouse.
 # Python 2/3 compatibility
 from __future__ import print_function
 import sys
-PY3 = sys.version_info[0] == 3
-
-if PY3:
-    xrange = range
-
 import numpy as np
 import cv2 as cv
 
@@ -37,12 +30,17 @@ import backend.track_object.common as common
 from backend.track_object.video import presets
 from AR_remover import objectdetection
 
+PY3 = sys.version_info[0] == 3
+
+if PY3:
+    xrange = range
+
 FLANN_INDEX_KDTREE = 1
 FLANN_INDEX_LSH    = 6
-flann_params= dict(algorithm = FLANN_INDEX_LSH,
-                   table_number = 6, # 12
-                   key_size = 12,     # 20
-                   multi_probe_level = 1) #2
+flann_params = dict(algorithm=FLANN_INDEX_LSH,
+                    table_number=6,  # 12
+                    key_size=12,     # 20
+                    multi_probe_level=1)  # 2
 
 MIN_MATCH_COUNT = 10
 
@@ -67,13 +65,13 @@ TrackedTarget = namedtuple('TrackedTarget', 'target, p0, p1, H, quad')
 
 class PlaneTracker:
     def __init__(self):
-        self.detector = cv.ORB_create( nfeatures = 1000 )
+        self.detector = cv.ORB_create(nfeatures=1000)
         self.matcher = cv.FlannBasedMatcher(flann_params, {})  # bug : need to pass empty dict (#1329)
         self.targets = []
         self.frame_points = []
 
     def add_target(self, image, rect, data=None):
-        '''Add a new tracking target.'''
+        ''' Add a new tracking target. '''
         x0, y0, x1, y1 = rect
         raw_points, raw_descrs = self.detect_features(image)
         points, descs = [], []
@@ -124,7 +122,7 @@ class PlaneTracker:
 
             track = TrackedTarget(target=target, p0=p0, p1=p1, H=H, quad=quad)
             tracked.append(track)
-        tracked.sort(key = lambda t: len(t.p0), reverse=True)
+        tracked.sort(key=lambda t: len(t.p0), reverse=True)
         return tracked
 
     def detect_features(self, frame):
@@ -182,9 +180,8 @@ class App:
 if __name__ == '__main__':
     print(__doc__)
 
-    import sys
     try:
         video_src = sys.argv[1]
-    except:
+    except IndexError:
         video_src = 0
     App(video_src).run()

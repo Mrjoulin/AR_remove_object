@@ -1,0 +1,6 @@
+Flask
+requests
+numpy
+Pillow
+scikit-learn
+scikit-image

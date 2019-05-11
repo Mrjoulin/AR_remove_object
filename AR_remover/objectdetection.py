@@ -1,33 +1,26 @@
 import numpy as np
-import os
-import six.moves.urllib as urllib
 import sys
-import tarfile
 import tensorflow as tf
 import cv2
 import time
 import logging
-import zipfile
-import matplotlib
-from object_detection.utils import ops as utils_ops
-
 from distutils.version import StrictVersion
-from collections import defaultdict
-from io import StringIO
-from matplotlib import pyplot as plt
-from PIL import Image, ImageDraw
+from PIL import Image
 
+# Tensorflow object detection modules
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
 
+# local modules
 from backend import source
 from backend.track_object import plane_tracker
+
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
 
 if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
-  raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
+    raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
 
 
 def find_object_in_image():
@@ -93,21 +86,23 @@ def find_object_in_image():
                         objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
 
                 # Visualize detected bounding boxes.
-                logging.info(str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5]))
+                logging.info(
+                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
+                )
 
                 # for i in range(num_detections):
                 for index, value in enumerate(out[3][0]):
                     if out[1][0, index] > 0.4:
-                        classId = int(out[3][0][index])
+                        class_id = int(out[3][0][index])
                         score = float(out[1][0][index])
                         box = [float(v) for v in out[2][0][index]]
-                        objects_class.append(classId)
+                        objects_class.append(class_id)
 
-                        logging.info('classId ' + str(classId) + ' score ' + str(score) + ' box ' + str(box))
+                        logging.info('classId ' + str(class_id) + ' score ' + str(score) + ' box ' + str(box))
 
-                        if classId in class_to_hide:
+                        if class_id in class_to_hide:
                             image = Image.fromarray(image_np)
-                            backgrond = Image.open(f'backend/out/1/out_{str(classId)}.jpg')
+                            backgrond = Image.open(f'backend/out/1/out_{str(class_id)}.jpg')
                             left = round(im_width * box[1]) - 5
                             top = round(im_height * box[0]) - 14
                             resize_width = round(im_width * (box[3] - box[1])) + 10
@@ -120,8 +115,8 @@ def find_object_in_image():
 
                 def get_screen(event, x, y, flags, param):
                     if event == cv2.EVENT_LBUTTONDBLCLK:
-                        IMG = Image.fromarray(image_np)
-                        IMG.save('backend/out/screens/screenshot.png')
+                        screen = Image.fromarray(image_np)
+                        screen.save('backend/out/screens/screenshot.png')
 
                 cv2.setMouseCallback('object detection', get_screen)
 
@@ -129,8 +124,8 @@ def find_object_in_image():
                     source.get_image_background_fragment(initial_image, objects, objects_class)
                     for index, value in enumerate(out[3][0]):
                         if out[1][0, index] > 0.4:
-                            classId = int(out[3][0][index])
-                            class_to_hide.append(classId)
+                            class_id = int(out[3][0][index])
+                            class_to_hide.append(class_id)
                     render = True
 
                 if cv2.waitKey(20) & 0xFF == ord('p'):

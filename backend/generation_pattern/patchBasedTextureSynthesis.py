@@ -1,8 +1,6 @@
-#imports
-import math
+# imports
 import logging
 import numpy as np
-import matplotlib.pyplot as plt
 import os
 
 from math import floor, ceil
@@ -12,13 +10,13 @@ from sklearn.neighbors import KDTree
 from skimage.util.shape import view_as_windows
 from skimage import io
 
-from PIL import Image, ImageDraw
-from IPython.display import clear_output, display
+from PIL import Image
+
 
 class patchBasedTextureSynthesis:
     
     def __init__(self, exampleMapPath, in_outputPath, in_outputSize, in_patchSize, in_overlapSize, number_of_image,
-                 in_windowStep = 5, in_mirror_hor = True, in_mirror_vert = True, in_shapshots = True):
+                 in_windowStep=5, in_mirror_hor=True, in_mirror_vert=True, in_shapshots=True):
         self.exampleMap = self.loadExampleMap(exampleMapPath)
         self.snapshots = in_shapshots
         self.outputPath = in_outputPath
@@ -28,14 +26,17 @@ class patchBasedTextureSynthesis:
         self.mirror_hor = in_mirror_hor
         self.mirror_vert = in_mirror_vert
         self.number_of_image = number_of_image
-        self.total_patches_count = 0 #excluding mirrored versions
+        # excluding mirrored versions
+        self.total_patches_count = 0
         self.windowStep = 5
         self.iter = 0
-        
-        self.checkIfDirectoryExists() #check if output directory exists
+
+        # check if output directory exists
+        self.checkIfDirectoryExists()
         self.examplePatches = self.prepareExamplePatches()
         self.canvas, self.filledMap, self.idMap = self.initCanvas()
-        self.initFirstPatch() #place random block to start with
+        # place random block to start with
+        self.initFirstPatch()
         self.kdtree_topOverlap, self.kdtree_leftOverlap, self.kdtree_combined = self.initKDtrees()
 
         self.PARM_truncation = 0.8
@@ -59,27 +60,27 @@ class patchBasedTextureSynthesis:
             self.visualize([0,0], [], [], showCandidates=False)
             
     def saveParams(self):
-        #write
+        # write
         text_file = open(self.outputPath + 'params.txt', "w")
         text_file.write("PatchSize: %d \nOverlapSize: %d \nMirror Vert: %d \nMirror Hor: %d" % (self.patchSize, self.overlapSize, self.mirror_vert, self.mirror_hor))
         text_file.close()
         
     def resolveNext(self):
-        #coordinate of the next one to resolve
+        # coordinate of the next one to resolve
         coord = self.idCoordTo2DCoord(np.sum(self.filledMap), np.shape(self.filledMap)) #get 2D coordinate of next to resolve patch
-        #get overlap areas of the patch we want to resolve
+        # get overlap areas of the patch we want to resolve
         overlapArea_Top = self.getOverlapAreaTop(coord)
         overlapArea_Left = self.getOverlapAreaLeft(coord)
-        #find most similar patch from the examples
+        # find most similar patch from the examples
         dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
         while len(dist) == 0:
             dist, ind = self.findMostSimilarPatches(overlapArea_Top, overlapArea_Left, coord)
             logging.info('Another dist')
         if self.mirror_hor or self.mirror_vert:
-            #check that top and left neighbours are not mirrors
+            # check that top and left neighbours are not mirrors
             dist, ind = self.checkForMirrors(dist, ind, coord)
 
-        #choose random valid patch
+        # choose random valid patch
         probabilities = self.distances2probability(dist, self.PARM_truncation, self.PARM_attenuation)
         try:
             chosenPatchId = np.random.choice(ind, 1, p=probabilities)
@@ -87,27 +88,27 @@ class patchBasedTextureSynthesis:
             logging.info('chosenPatchId error refused')
             chosenPatchId = np.random.choice(ind, 1, p=np.array([1., 0., 0., 0., 0.]))
 
-        #update canvas
+        # update canvas
         blend_top = (overlapArea_Top is not None)
         blend_left = (overlapArea_Left is not None)
         self.updateCanvas(chosenPatchId, coord[0], coord[1], blend_top, blend_left)
         
-        #update filledMap and id map ;)
+        # update filledMap and id map ;)
         self.filledMap[coord[0], coord[1]] = 1
         self.idMap[coord[0], coord[1]] = chosenPatchId
         
-        #visualize
+        # visualize
         self.visualize(coord, chosenPatchId, ind)
         
         self.iter += 1
         
     def visualize(self, coord, chosenPatchId, nonchosenPatchId, showCandidates = True):
-        #full visualization includes both example and generated img
+        # full visualization includes both example and generated img
         canvasSize = np.shape(self.canvas)
-        #insert generated image
+        # insert generated image
         vis = np.zeros((canvasSize[0], canvasSize[1] * 2, 3)) + 0.2
         vis[:, 0:canvasSize[1]] = self.canvas
-        #insert example
+        # insert example
         exampleHighlited = np.copy(self.exampleMap)
         if showCandidates:
             exampleHighlited = self.hightlightPatchCandidates(chosenPatchId, nonchosenPatchId)
@@ -118,12 +119,6 @@ class patchBasedTextureSynthesis:
         offset_w = floor((canvasSize[1] - w) / 2)
         
         vis[offset_h:offset_h+h, canvasSize[1]+offset_w:canvasSize[1]+offset_w+w] = exampleResized
-        
-        #show live update
-        #plt.imshow(vis)
-        #clear_output(wait=True)
-        #display(plt.show())
-        
         if self.snapshots:
             img = Image.fromarray(np.uint8(vis*255))
             img = img.resize((self.outputSize[0]*2, self.outputSize[1]), resample=0, box=None)
