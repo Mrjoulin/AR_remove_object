@@ -2,7 +2,7 @@ import requests
 import logging
 import base64
 import json
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, render_template
 from werkzeug.contrib.fixers import ProxyFix
 
 # local modules
@@ -22,7 +22,7 @@ app = Flask(__name__)
 @app.route('/')
 def init():
     logging.info('Run init page')
-    return "Init page"
+    return render_template("index.html")
 
 
 @app.route('/test')
@@ -67,16 +67,17 @@ def get_pattern():
 
 
 def make_api_response(payload, code=200):
-    return make_response(jsonify({'code': code, 'payload': payload}), code)
+    return make_response((jsonify({'payload': payload}), code))
 
 
 def make_api_request(method_name, **kwargs):
     # url = "http://localhost:5000/" + method_name
     url = "http://94.103.94.220:5000/" + method_name
     response = requests.post(url, json=kwargs).json()
-    logging.info(str(response))
-    if response['code'] != 200:
-        raise Exception(response['payload']['message'])
+
+    logging.debug(str(response))
+    # if response['code'] != 200:
+    #    raise Exception(response['payload']['message'])
     return response
 
 

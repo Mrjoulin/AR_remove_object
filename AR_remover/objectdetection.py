@@ -23,8 +23,33 @@ if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
     raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
 
 
-def find_object_in_image():
-    cap = cv2.VideoCapture(0)
+def camera(video_path=None):
+    cap = cv2.VideoCapture(video_path)
+    cnt = 0
+    start_time = time.time()
+    while cap.isOpened():
+        ret, image_np = cap.read()
+        try:
+            cnt += 1
+            cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+        except Exception as e:
+            logging.debug(e)
+            break
+        if cv2.waitKey(1) & 0xFF == ord('q') or cv2.waitKey(1) == 27:
+            cv2.destroyAllWindows()
+            break
+
+    logging.info('cnt %s' % cnt)
+    logging.info('time %s' % (time.time() - start_time))
+    logging.info('%s frames per second' % (cnt / (time.time() - start_time)))
+
+
+def find_object_in_image(cap, video_size, render_video=False, number_video=0):
+    if render_video:
+        out_video_name = 'videos/out_videos/out_video_%s.mp4' % number_video
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out_video = cv2.VideoWriter(out_video_name, fourcc, 30.0, video_size, True)
+
     PATH_TO_FROZEN_GRAPH = "./AR_remover/frozen_inference_graph.pb"
     PATH_TO_LABELS = './AR_remover/mscoco_label_map.pbtxt'
 
@@ -38,14 +63,22 @@ def find_object_in_image():
 
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
-    render = False
+    render = render_video
     class_to_hide = []
     with detection_graph.as_default():
         with tf.Session(graph=detection_graph) as sess:
-            while True:
+            while cap.isOpened():
                 start_time = time.time()
                 ret, image_np = cap.read()
-                ret, initial_image = cap.read()
+                if ret:
+                    initial_image = np.array([i for i in image_np])
+                else:
+                    cap.release()
+                    if render_video:
+                        logging.info('Extracting render video in %s' % out_video_name)
+                        out_video.release()
+                    cv2.destroyAllWindows()
+                    break
                 # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
                 image_np_expanded = np.expand_dims(image_np, axis=0)
                 image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
@@ -87,8 +120,22 @@ def find_object_in_image():
 
                 # Visualize detected bounding boxes.
                 logging.info(
-                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
+                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.4])
                 )
+
+                # get patterns objects in image
+                if render:
+                    for index, value in enumerate(out[3][0]):
+                        if out[1][0, index] > 0.4:
+                            class_id = int(out[3][0][index])
+                            objects_class.append(class_id)
+
+                    class_img_to_hide = source.get_image_background_fragment(initial_image, objects, objects_class)
+
+                    for class_img in class_img_to_hide:
+                        class_to_hide.append(class_img)
+
+                    render = render_video
 
                 # for i in range(num_detections):
                 for index, value in enumerate(out[3][0]):
@@ -96,7 +143,6 @@ def find_object_in_image():
                         class_id = int(out[3][0][index])
                         score = float(out[1][0][index])
                         box = [float(v) for v in out[2][0][index]]
-                        objects_class.append(class_id)
 
                         logging.info('classId ' + str(class_id) + ' score ' + str(score) + ' box ' + str(box))
 
@@ -111,7 +157,11 @@ def find_object_in_image():
                             image.paste(normal_bg, (left, top))
                             image_np = np.array(image)
 
-                cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+                cv2.imshow('object detection', cv2.resize(image_np, video_size))
+
+                if render_video:
+                    logging.info('Write a render moment')
+                    out_video.write(image_np)
 
                 def get_screen(event, x, y, flags, param):
                     if event == cv2.EVENT_LBUTTONDBLCLK:
@@ -121,24 +171,19 @@ def find_object_in_image():
                 cv2.setMouseCallback('object detection', get_screen)
 
                 if cv2.waitKey(1) & 0xFF == ord(' '):
-                    source.get_image_background_fragment(initial_image, objects, objects_class)
-                    for index, value in enumerate(out[3][0]):
-                        if out[1][0, index] > 0.4:
-                            class_id = int(out[3][0][index])
-                            class_to_hide.append(class_id)
                     render = True
 
-                if cv2.waitKey(20) & 0xFF == ord('p'):
+                if cv2.waitKey(1) & 0xFF == ord('p'):
                     logging.info('P is pressed')
                     plane_tracker.App(0).run()
                     break
 
-                if cv2.waitKey(25) & 0xFF == ord('c'):
+                if cv2.waitKey(1) & 0xFF == ord('c'):
                     logging.info('Clear mask')
                     render = False
                     class_to_hide = []
 
-                if cv2.waitKey(30) & 0xFF == ord('q') or cv2.waitKey(31) == 27:
+                if cv2.waitKey(1) & 0xFF == ord('q') or cv2.waitKey(1) == 27:
                     cv2.destroyAllWindows()
                     break
 
