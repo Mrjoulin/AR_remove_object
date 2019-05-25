@@ -11,13 +11,6 @@ from backend.source import get_image_background_fragment
 
 app = Flask(__name__)
 
-# input json:
-# {
-#   "img": <BASE64-encoded img>,
-#   "objects": [ {"x": <x>, "y": <y>, "width": <width>, "height": <height>}, ...]
-#   "class_objects": [<number_class>, ...]
-# }
-
 
 @app.route('/')
 def init():
@@ -31,6 +24,22 @@ def test():
     imgs = make_api_request('get_pattern', img=test_json['img'], objects=test_json['objects'],
                             class_objects=test_json['class_objects'])
     return str(imgs)
+
+
+# input json:
+# {
+#   "img": <BASE64-encoded img>,
+#   "objects": [ {"x": <x>, "y": <y>, "width": <width>, "height": <height>}, ...]
+#   "class_objects": [<number_class>, ...]
+# }
+#
+# output json:
+# {
+#   "payload": {
+#       <class_object>: <BASE64-encoded pattern object>
+#       ...
+# }
+# }
 
 
 @app.route("/get_pattern", methods=['POST'])
@@ -76,8 +85,6 @@ def make_api_request(method_name, **kwargs):
     response = requests.post(url, json=kwargs).json()
 
     logging.debug(str(response))
-    # if response['code'] != 200:
-    #    raise Exception(response['payload']['message'])
     return response
 
 

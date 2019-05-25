@@ -86,9 +86,6 @@ def save_background_image(img, objects, obj, object_class, number_object, bg_w, 
 
         return {'success': True, 'bg_path': path}
     else:
-        # bg = Image.open('backend/background/grid_background.jpg')
-        # path = f'backend/out/1/out_{str(object_class)}.jpg'
-
         return {'success': False}
 
 

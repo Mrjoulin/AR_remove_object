@@ -47,7 +47,6 @@ class patchBasedTextureSynthesis:
             os.makedirs(self.outputPath)
         
     def resolveAll(self):
-        self.saveParams()
         #resolve all unresolved patches
         for i in range(np.sum(1-self.filledMap).astype(int)):
             self.resolveNext()

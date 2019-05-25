@@ -1,5 +1,6 @@
 import numpy as np
 import sys
+import os
 import tensorflow as tf
 import cv2
 import time
@@ -46,8 +47,8 @@ def camera(video_path=None):
 
 def find_object_in_image(cap, video_size, render_video=False, number_video=0):
     if render_video:
-        out_video_name = 'videos/out_videos/out_video_%s.mp4' % number_video
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out_video_name = 'videos/out_videos/out_video_%s.avi' % number_video
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_video = cv2.VideoWriter(out_video_name, fourcc, 30.0, video_size, True)
 
     PATH_TO_FROZEN_GRAPH = "./AR_remover/frozen_inference_graph.pb"
@@ -188,3 +189,22 @@ def find_object_in_image(cap, video_size, render_video=False, number_video=0):
                     break
 
                 logging.info("--- %s seconds ---" % (time.time() - start_time))
+
+    remove_all_generate_files()
+
+
+def remove_all_generate_files():
+    pattern_path = 'backend/generation_pattern/pattern'
+    remove_pathes = [
+        'backend/background/',
+        'backend/out/1/',
+        'backend/out/screens/'
+    ]
+
+    for path in remove_pathes:
+        for img in os.listdir(path):
+            os.remove(path + img)
+
+    for form in ['.jpg', '.png']:
+        if os.path.exists(pattern_path + form):
+            os.remove(pattern_path + form)
