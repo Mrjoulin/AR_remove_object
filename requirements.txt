@@ -1,6 +1,10 @@
 Flask
 requests
 numpy
+opencv-python
 Pillow
 scikit-learn
 scikit-image
+PyQt5
+SIP
+

@@ -1,19 +1,26 @@
-import json
+import os
+import cv2
 import time
 import base64
 import logging
+from io import BytesIO
 import numpy as np
 from PIL import Image
 from backend.generation_pattern.generate_pattern import get_generative_background
 
 
-def parse_input_json(img_rect_json):
-    img_rect = json.loads(img_rect_json)
-    img = base64.b64decode(img_rect["img"])
-    rects = img_rect["shapes"]
-    logging.info("img:" + str(img))
-    logging.info("rect:" + str(rects))
-    return img, rects
+def decode_input_image(image):
+    try:
+        decode_img = base64.b64decode(image.encode('utf-8'))
+        image = Image.open(BytesIO(decode_img))
+        path = 'backend/object.png'
+        image.save(path)
+        image_np = cv2.imread(path)
+        os.remove(path)
+    except:
+        image_np = image
+    logging.info("Image received")
+    return image_np
 
 
 def get_background_coordinates(img, bg_w, bg_h, current_obj, objects):
@@ -72,7 +79,7 @@ def get_background_coordinates(img, bg_w, bg_h, current_obj, objects):
     return -1, -1
 
 
-def save_background_image(img, objects, obj, object_class, number_object, bg_w, bg_h):
+def save_background_image(img, objects, obj, number_object, bg_w, bg_h):
     left, top = get_background_coordinates(img, bg_w, bg_h, obj, objects)
     logging.info('image size: ' + str(img.size) + ' background coordinates: ' + str(left) + ' ' + str(top))
     if left != -1:
@@ -89,20 +96,12 @@ def save_background_image(img, objects, obj, object_class, number_object, bg_w, 
         return {'success': False}
 
 
-def get_image_background_fragment(_img, objects, objects_class):
+def get_image_masking(_img, objects, objects_class):
     # test_json = open('test.json', 'r').read()
     # _img, objects = parse_input_json(test_json)
-    try:
-        img_arr = base64.b64decode(_img)
-        filename = 'backend/object.jpg'  # I assume you have a way of picking unique filenames
-        with open(filename, 'wb') as f:
-            f.write(img_arr)
-        img = Image.open(filename)
-    except:
-        img = Image.fromarray(_img)
+    img = Image.fromarray(decode_input_image(_img))
 
     number_object = 0
-    class_to_hide = []
     for current_object, object_class in zip(objects, objects_class):
         object_width = int(current_object['width'])
         object_height = int(current_object['height'])
@@ -115,15 +114,48 @@ def get_image_background_fragment(_img, objects, objects_class):
 
         logging.info('background size: ' + str(background_width) + ' ' + str(background_height))
 
-        request = save_background_image(img, objects, current_object, object_class,
-                                        number_object, background_width, background_height)
+        request = save_background_image(img, objects, current_object,number_object, background_width, background_height)
         if request['success']:
             get_generative_background(request['bg_path'], object_width, object_height, object_class)
 
-            class_to_hide.append(object_class)
+            backgrond = Image.open(f'backend/out/1/out_{str(object_class)}.jpg')
+            img.paste(backgrond, (current_object['x'], current_object['y']))
             number_object += 1
 
-    return class_to_hide
+    image_np = np.array(img)
+    return image_np
+
+
+def get_image_inpaint(_image, objects):
+    image = decode_input_image(_image)
+
+    image_np_mark = image.copy()
+    mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
+    for _object in objects:
+        for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
+            for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
+                try:
+                    mask_np[y][x] = 255
+                except IndexError:
+                    pass
+    image_np = cv2.inpaint(image, mask_np, 1, cv2.INPAINT_TELEA)
+    return image_np
+
+
+def remove_all_generate_files():
+    pattern_path = 'backend/generation_pattern/pattern'
+    remove_pathes = [
+        'backend/background/',
+        'backend/out/1/',
+    ]
+
+    for path in remove_pathes:
+        for img in os.listdir(path):
+            os.remove(path + img)
+
+    for form in ['.jpg', '.png']:
+        if os.path.exists(pattern_path + form):
+            os.remove(pattern_path + form)
 
 
 def test_crop():
@@ -159,5 +191,5 @@ def test_crop():
         }
     ]
     class_obj = [1001, 1002, 1003, 1004]
-    get_image_background_fragment(arr, test_objects, class_obj)
+    get_image_masking(arr, test_objects, class_obj)
     logging.info("--- %s seconds ---" % (time.time() - start_time))
