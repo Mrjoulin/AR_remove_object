@@ -1,7 +1,10 @@
+from PIL import Image
+import numpy as np
 import requests
 import logging
 import base64
 import json
+import os
 from flask import Flask, request, jsonify, make_response, render_template
 from werkzeug.contrib.fixers import ProxyFix
 
@@ -66,18 +69,17 @@ def get_masking_image():
 @app.route('/get_inpaint_image', methods=['POST'])
 def get_inpaint_image():
 
-    # ------------- GET MASKING IMAGE -------------
+    # ------------- GET INPAINT IMAGE -------------
     # input json:
     # {
     #   "img": <BASE64-encoded img>,
     #   "objects": [ {"x": <x>, "y": <y>, "width": <width>, "height": <height>}, ...]
-    #   "class_objects": [<number_class>, ...]
     # }
     #
     # output json:
     # {
     #   "payload": {
-    #       "img": <BASE64-encoded masking image>
+    #       "img": <BASE64-encoded inpaint image>
     # }
     # }
 
@@ -108,11 +110,16 @@ def get_image(masking=False, inpaint=False):
         elif inpaint:
             image_np = source.get_image_inpaint(img, objects)
         else:
-            image_np = source.decode_input_image(img)
+            image_np = np.array(source.decode_input_image(img))
 
         source.remove_all_generate_files()
 
-        encoded_image = base64.b64encode(image_np)
+        image = Image.fromarray(image_np)
+        path_img = 'backend/object.jpg'
+        image.save(path_img)
+        with open(path_img, 'rb') as file:
+            encoded_image = base64.b64encode(file.read())
+        os.remove(path_img)
         logging.info("Return Generate Masking Image")
         return make_api_response({'img': encoded_image.decode("utf-8")})
 

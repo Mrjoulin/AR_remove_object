@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import cv2
 import time
+import base64
 import logging
 from distutils.version import StrictVersion
 from PIL import Image
@@ -15,7 +16,7 @@ from object_detection.utils import visualization_utils as vis_util
 # local modules
 from backend import source
 from backend.track_object import plane_tracker
-
+from frontend.routes import make_api_request
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -45,19 +46,21 @@ def camera(video_path=0):
     logging.info('%s frames per second' % (cnt / (time.time() - start_time)))
 
 
-def find_object_in_image(cap, video_size, render_image_by_masking=False, render_video_by_masking=False,
-                         render_image_by_inpainting=False, render_video_by_inpainting=False, number_video=None):
+def start_rendering(cap, video_size, use_server=False, render_image_by_masking=False, render_video_by_masking=False,
+                    render_image_by_inpainting=False, render_video_by_inpainting=False, number_video=None, tf2=False):
     if render_video_by_masking:
-        masking_name = 'videos/out_videos/out_masking_video%s.mp4' % (('_%s' % number_video) if number_video else '')
-        fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+        masking_name = f"videos/out_videos/out_masking_video{('_%s' % number_video) if number_video else ''}" \
+                       f"{'_tf2' if tf2 else ''}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_masking_video = cv2.VideoWriter(masking_name, fourcc, 30.0, video_size, True)
 
     if render_video_by_inpainting:
-        inpaint_name = 'videos/out_videos/out_inpaint_video%s.mp4' % (('_%s' % number_video) if number_video else '')
-        fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+        inpaint_name = f"videos/out_videos/out_inpaint_video{('_%s' % number_video) if number_video else ''}" \
+                       f"{'_tf2' if tf2 else ''}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, 30.0, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph2.pb"
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
     PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
 
     detection_graph = tf.Graph()
@@ -158,17 +161,49 @@ def find_object_in_image(cap, video_size, render_image_by_masking=False, render_
                         #     image.paste(normal_bg, (left, top))
                         #     image_np = np.array(image)
 
-                # get masking image
-                if render:
-                    image_np = source.get_image_masking(initial_image, objects, objects_class)
+                # if Tensorflow find objects
+                if objects:
+                    # get masking image
+                    if render:
+                        if use_server:
+                            img = Image.fromarray(initial_image)
+                            save_path = 'backend/object.png'
+                            img.save(save_path)
+                            with open(save_path, 'rb') as image_file:
+                                encoded_image = base64.b64encode(image_file.read())
+                                os.remove(save_path)
+                            response = make_api_request('get_masking_image', img=encoded_image.decode('utf-8'),
+                                                        objects=objects, class_objects=objects_class)
+                            try:
+                                image_np = np.array(source.decode_input_image(response['payload']['img']))
+                            except KeyError:
+                                raise KeyError(response['payload']['message'])
+                            logging.info('Get inpaint image')
+                        else:
+                            image_np = source.get_image_masking(initial_image, objects, objects_class)
 
-                    # for class_img in class_img_to_hide:
-                    #    class_to_hide.append(class_img)
-                    # render = render_video_by_masking
+                        # for class_img in class_img_to_hide:
+                        #    class_to_hide.append(class_img)
+                        # render = render_video_by_masking
 
-                # get inpainting image
-                if inpaint:
-                    image_np = source.get_image_inpaint(initial_image, objects)
+                    # get inpainting image
+                    if inpaint:
+                        if use_server:
+                            img = Image.fromarray(initial_image)
+                            save_path = 'backend/object.png'
+                            img.save(save_path)
+                            with open(save_path, 'rb') as image_file:
+                                encoded_image = base64.b64encode(image_file.read())
+                                os.remove(save_path)
+                            response = make_api_request('get_inpaint_image', img=encoded_image.decode('utf-8'),
+                                                        objects=objects)
+                            try:
+                                image_np = np.array(source.decode_input_image(response['payload']['img']))
+                            except KeyError:
+                                raise KeyError(response['payload']['message'])
+                            logging.info('Get inpaint image')
+                        else:
+                            image_np = source.get_image_inpaint(initial_image, objects)
 
                 if render_image_by_masking or render_image_by_inpainting:
                     path_to_save = 'AR_remover/render_' + ('masking' if render_image_by_masking else 'inpaint') + \
@@ -205,6 +240,10 @@ def find_object_in_image(cap, video_size, render_image_by_masking=False, render_
                 if cv2.waitKey(20) & 0xFF == ord('i'):
                     inpaint = not inpaint
                     logging.info('Start inpainting objects' if inpaint else 'Stop inpaint')
+
+                if cv2.waitKey(5) & 0xFF == ord('s'):
+                    use_server = not use_server
+                    logging.info('Start using server to rendering image' if use_server else 'Stop using server')
 
                 if cv2.waitKey(1) & 0xFF == ord('p'):
                     logging.info('P is pressed')

@@ -12,15 +12,16 @@ from backend.generation_pattern.generate_pattern import get_generative_backgroun
 def decode_input_image(image):
     try:
         decode_img = base64.b64decode(image.encode('utf-8'))
-        image = Image.open(BytesIO(decode_img))
-        path = 'backend/object.png'
-        image.save(path)
-        image_np = cv2.imread(path)
+        path = 'backend/object.jpg'
+        with open(path, 'wb') as write_file:
+            write_file.write(decode_img)
+        img = Image.open(path)
         os.remove(path)
-    except:
-        image_np = image
+    except Exception as e:
+        logging.error(e)
+        img = Image.fromarray(image)
     logging.info("Image received")
-    return image_np
+    return img
 
 
 def get_background_coordinates(img, bg_w, bg_h, current_obj, objects):
@@ -99,7 +100,7 @@ def save_background_image(img, objects, obj, number_object, bg_w, bg_h):
 def get_image_masking(_img, objects, objects_class):
     # test_json = open('test.json', 'r').read()
     # _img, objects = parse_input_json(test_json)
-    img = Image.fromarray(decode_input_image(_img))
+    img = decode_input_image(_img)
 
     number_object = 0
     for current_object, object_class in zip(objects, objects_class):
@@ -127,7 +128,7 @@ def get_image_masking(_img, objects, objects_class):
 
 
 def get_image_inpaint(_image, objects):
-    image = decode_input_image(_image)
+    image = np.array(decode_input_image(_image))
 
     image_np_mark = image.copy()
     mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)

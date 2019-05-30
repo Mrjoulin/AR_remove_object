@@ -171,7 +171,7 @@ class App:
             if ch == ord('c'):
                 self.tracker.clear()
             if ch == ord('p'):
-                objectdetection.find_object_in_image()
+                objectdetection.start_rendering(cv.VideoCapture(0), (800, 600))
                 break
             if ch == 27:
                 break
