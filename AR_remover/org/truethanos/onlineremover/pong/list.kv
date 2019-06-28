@@ -1,0 +1,33 @@
+#:kivy 1.1.0
+
+<ListScreen>:
+    items_box: items_box
+    BoxLayout:
+        orientation: "vertical"
+        AnchorLayout:
+            size_hint_y: 0.1
+            padding: self.width*0.1, self.height*0.05
+            Label:
+                font_size: root.height*0.05
+                text: "Some list"
+        ScrollView:
+            size_hint_y: 0.9
+            size: self.size
+            BoxLayout:
+                id: items_box
+                orientation: "vertical"
+                padding: self.width*0.1, 0
+                size_hint_y: None
+
+<ListItem>:
+    orientation: "horizontal"
+    size_hint_y: None
+    height: app.sm.height*0.1
+    Label:
+        font_size: app.sm.height*0.025
+        text: root.title
+        size_hint_x: 0.9
+        text_size: self.size
+        valign: "middle"
+    CheckBox
+        size_hint_x: 0.1

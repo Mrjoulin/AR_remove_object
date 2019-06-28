@@ -1,8 +1,8 @@
-from PIL import Image
 import numpy as np
 import requests
 import logging
 import base64
+import cv2
 import json
 import os
 from flask import Flask, request, jsonify, make_response, render_template
@@ -114,12 +114,8 @@ def get_image(masking=False, inpaint=False):
 
         source.remove_all_generate_files()
 
-        image = Image.fromarray(image_np)
-        path_img = 'backend/object.jpg'
-        image.save(path_img)
-        with open(path_img, 'rb') as file:
-            encoded_image = base64.b64encode(file.read())
-        os.remove(path_img)
+        success, image = cv2.imencode('.png', image_np)
+        encoded_image = base64.b64encode(image.tobytes())
         logging.info("Return Generate Masking Image")
         return make_api_response({'img': encoded_image.decode("utf-8")})
 

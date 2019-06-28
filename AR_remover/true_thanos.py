@@ -34,6 +34,7 @@ class Main(QWidget):
 
         self.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed))
         self.welcome_window()
+
         '''
         background = QLabel()
         pixmap = QPixmap('render_img.png')
@@ -91,7 +92,7 @@ class Main(QWidget):
 
         buttons_block = QVBoxLayout()
         buttons_block.setSpacing(20)
-        video_button = QPushButton('Видео')
+        video_button = QPushButton('Video')
         video_button.setStyleSheet(''' height: 55;
                                        font-family: Montserrat;
                                        font-style: normal;
@@ -120,7 +121,7 @@ class Main(QWidget):
                                        text-align: center;
                                        text-decoration:none;
 
-                                       background: #13C0CB;
+                                       background: #4286f4;
                                        border-radius: 25px;
                                        border: 0;
 

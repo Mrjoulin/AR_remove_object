@@ -3,7 +3,6 @@ import cv2
 import time
 import base64
 import logging
-from io import BytesIO
 import numpy as np
 from PIL import Image
 from backend.generation_pattern.generate_pattern import get_generative_background
@@ -17,8 +16,7 @@ def decode_input_image(image):
             write_file.write(decode_img)
         img = Image.open(path)
         os.remove(path)
-    except Exception as e:
-        logging.error(e)
+    except:
         img = Image.fromarray(image)
     logging.info("Image received")
     return img
