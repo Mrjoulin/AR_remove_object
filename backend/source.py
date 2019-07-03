@@ -18,7 +18,6 @@ def decode_input_image(image):
         os.remove(path)
     except:
         img = Image.fromarray(image)
-    logging.info("Image received")
     return img
 
 
@@ -130,6 +129,7 @@ def get_image_inpaint(_image, objects):
 
     image_np_mark = image.copy()
     mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
+
     for _object in objects:
         for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
             for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
@@ -162,8 +162,13 @@ def test_crop():
     start_time = time.time()
     img = Image.open('backend/test_img.jpg')
     arr = np.array(img)
+    objects, class_obj = test_objects()
+    get_image_masking(arr, objects, class_obj)
+    logging.info("--- %s seconds ---" % (time.time() - start_time))
 
-    test_objects = [
+
+def test_objects():
+    objects = [
         {
             'x': 20,
             'y': 50,
@@ -190,5 +195,4 @@ def test_crop():
         }
     ]
     class_obj = [1001, 1002, 1003, 1004]
-    get_image_masking(arr, test_objects, class_obj)
-    logging.info("--- %s seconds ---" % (time.time() - start_time))
+    return objects, class_obj

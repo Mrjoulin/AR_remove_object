@@ -6,12 +6,14 @@ import cv2
 import json
 import os
 import uuid
+from py_mini_racer import py_mini_racer
 import asyncio
 from aiohttp import web
-from flask import Flask, request, jsonify, make_response, render_template
-from flask_cors import CORS
+from jinja2 import Environment, FileSystemLoader
+# from flask import Flask, jsonify, make_response, render_template
+# from flask_cors import CORS
 
-from werkzeug.contrib.fixers import ProxyFix
+# from werkzeug.contrib.fixers import ProxyFix
 
 from av import VideoFrame
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
@@ -21,39 +23,35 @@ from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRecorder
 from backend import source
 
 
-app = Flask(__name__)
-CORS(app)
-
 # URL = "http://127.0.0.1:5000/"
 URL = "http://94.103.94.220:5000/"
+loop = asyncio.get_event_loop()
+ROOT = os.path.dirname(os.path.abspath(__file__))
 loop = asyncio.get_event_loop()
 pcs = set()
 
 
-@app.route('/')
-def init():
+async def init(request):
     logging.info('Run init page')
-    return render_template("index.html")
+    content = open(os.path.join(ROOT, "templates/index.html"), "r").read()
+    return web.Response(content_type="text/html", text=content)
 
 
-@app.route('/test_masking')
-def test_masking():
+async def test_masking(request):
     test_json = json.loads(open('backend/test.json', 'r').read())
     imgs = make_api_request(url_server=URL, method_name='get_masking_image', img=test_json['img'],
                             objects=test_json['objects'], class_objects=test_json['class_objects'])
-    return str(imgs)
+    return web.Response(text=str(imgs))
 
 
-@app.route('/test_inpaint')
-def test_inpaint():
+async def test_inpaint(requset):
     test_json = json.loads(open('backend/test.json', 'r').read())
     imgs = make_api_request(url_server=URL, method_name='get_inpaint_image',
                             img=test_json['img'], objects=test_json['objects'])
-    return str(imgs)
+    return web.Response(text=str(imgs))
 
 
-@app.route("/get_masking_image", methods=['POST'])
-def get_masking_image():
+async def get_masking_image(request):
 
     # ------------- GET MASKING IMAGE -------------
     # input json:
@@ -70,7 +68,7 @@ def get_masking_image():
     # }
     # }
 
-    return get_image(masking=True)
+    return get_image(request, masking=True)
 
     #patterns = {}
     #for class_object in class_objects:
@@ -82,8 +80,7 @@ def get_masking_image():
     #        return make_api_response({'message': 'Internal Server Error'}, code=500)
 
 
-@app.route('/get_inpaint_image', methods=['POST'])
-def get_inpaint_image():
+async def get_inpaint_image(request):
 
     # ------------- GET INPAINT IMAGE -------------
     # input json:
@@ -99,26 +96,36 @@ def get_inpaint_image():
     # }
     # }
 
-    return get_image(inpaint=True)
+    return get_image(request, inpaint=True)
 
 
-def get_image(masking=False, inpaint=False):
+def get_image(request, masking=False, inpaint=False):
     if request.is_json:
-        json = request.get_json()
+        request_json = request.get_json()
         logging.info('Json received')
     else:
         logging.error('BAD REQUEST JSON')
-        return make_api_response({'message': 'No Content'}, code=204)
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {'message': 'No Content'}
+            ),
+        )
 
-    if 'img' in json and isinstance(json['img'], str) and \
-            'objects' in json and isinstance(json['objects'], list):
-        img = json['img']
-        objects = json['objects']
-        if masking and 'class_objects' in json and isinstance(json['class_objects'], list) and \
-            len(json['objects']) == len(json['class_objects']):
-            class_objects = json['class_objects']
+    if 'img' in request_json and isinstance(request_json['img'], str) and \
+            'objects' in request_json and isinstance(request_json['objects'], list):
+        img = request_json['img']
+        objects = request_json['objects']
+        if masking and 'class_objects' in request_json and isinstance(request_json['class_objects'], list) and \
+            len(request_json['objects']) == len(request_json['class_objects']):
+            class_objects = request_json['class_objects']
     else:
-        return make_api_response({'message': 'Partial Content'}, code=206)
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {'message': 'Partial Content'}
+            ),
+        )
 
     try:
         if masking:
@@ -133,78 +140,37 @@ def get_image(masking=False, inpaint=False):
         success, image = cv2.imencode('.png', image_np)
         encoded_image = base64.b64encode(image.tobytes())
         logging.info("Return Generate Masking Image")
-        return make_api_response({'img': encoded_image.decode("utf-8")})
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {'img': encoded_image.decode("utf-8")}
+            ),
+        )
 
     except Exception as e:
         logging.error(e)
-        return make_api_response({'message': 'Internal Server Error'}, code=500)
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {'message': 'Internal Server Error'}
+            ),
+        )
 
 
 class VideoTransformTrack(VideoStreamTrack):
-    def __init__(self, track, transform):
+    def __init__(self, track, transform, objects):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
+        self.objects = objects
 
     async def recv(self):
         frame = await self.track.recv()
-        if self.transform == "inpaint":
+        if self.transform == "inpaint" and self.objects:
             img = frame.to_ndarray(format="bgr24")
             objects, class_objects = source.test_objects()
-            new_img = source.get_image_inpaint(img, objects)
+            new_img = source.get_image_inpaint(img, self.objects)
             new_frame = VideoFrame.from_ndarray(new_img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            return new_frame
-
-        elif self.transform == "cartoon":
-            img = frame.to_ndarray(format="bgr24")
-
-            # prepare color
-            img_color = cv2.pyrDown(cv2.pyrDown(img))
-            for _ in range(6):
-                img_color = cv2.bilateralFilter(img_color, 9, 9, 7)
-            img_color = cv2.pyrUp(cv2.pyrUp(img_color))
-
-            # prepare edges
-            img_edges = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            img_edges = cv2.adaptiveThreshold(
-                cv2.medianBlur(img_edges, 7),
-                255,
-                cv2.ADAPTIVE_THRESH_MEAN_C,
-                cv2.THRESH_BINARY,
-                9,
-                2,
-            )
-            img_edges = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2RGB)
-
-            # combine color and edges
-            img = cv2.bitwise_and(img_color, img_edges)
-
-            # rebuild a VideoFrame, preserving timing information
-            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            return new_frame
-        elif self.transform == "edges":
-            # perform edge detection
-            img = frame.to_ndarray(format="bgr24")
-            img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
-
-            # rebuild a VideoFrame, preserving timing information
-            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            return new_frame
-        elif self.transform == "rotate":
-            # rotate image
-            img = frame.to_ndarray(format="bgr24")
-            rows, cols, _ = img.shape
-            M = cv2.getRotationMatrix2D((cols / 2, rows / 2), frame.time * 45, 1)
-            img = cv2.warpAffine(img, M, (cols, rows))
-
-            # rebuild a VideoFrame, preserving timing information
-            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
             return new_frame
@@ -212,21 +178,45 @@ class VideoTransformTrack(VideoStreamTrack):
             return frame
 
 
-@app.route("/offer", methods=['POST'])
-def offer():
-    response = loop.run_until_complete(webrtc())
-    return response
+async def webrtc(request):
+    logging.info('Webrtc request')
+    #content = open(os.path.join(ROOT, "frontend/templates/webrtc.html"), "r").read()
+    params = await request.json()
+    j2_env = Environment(loader=FileSystemLoader(ROOT + '/templates/'),
+                         trim_blocks=True)
+    content = j2_env.get_template('webrtc.html').render(
+        offer_params=params
+    )
+
+    return web.Response(content_type="text/html", text=content)
 
 
-async def webrtc():
+async def client(request):
+    params = await request.json()
+    '''
+    js = 'var offer = %s;' % params
+    js += open(os.path.join(ROOT, "templates/src/client.js"), "r").read()
+
+    ctx = py_mini_racer.MiniRacer()
+    logging.info('Run render')
+    ctx.eval(js)
+    content = ctx.call('test_fetch')
+    logging.info(content)
+    '''
+    content = loop.run_until_complete(offer(request))
+
+    return content
+
+
+async def offer(request):
     logging.info('Request send' + str(request))
-    params = request.get_json(force=True)
+    params = await request.json()
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
     pc = RTCPeerConnection()
-    # pc_id = "PeerConnection(%s)" % uuid.uuid4()
+    pc_id = "PeerConnection(%s)" % uuid.uuid4()
     pcs.add(pc)
-    # logging.info(pc_id + " " + "Created for %s" % request.remote)
+    logging.info(pc_id + " " + "Created for %s" % request.remote)
 
     @pc.on("datachannel")
     def on_datachannel(channel):
@@ -246,7 +236,7 @@ async def webrtc():
     def on_track(track):
         logging.info("Track %s received" % track.kind)
 
-        local_video = VideoTransformTrack(track, transform=params["video_transform"])
+        local_video = VideoTransformTrack(track, transform=params["video_transform"], objects=params["objects"])
         pc.addTrack(local_video)
 
     # handle offer
@@ -258,13 +248,15 @@ async def webrtc():
 
     logging.info('Return json')
 
-    await asyncio.sleep(20)
-
-    return make_response((jsonify({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}), 200))
-
-
-def make_api_response(payload, code=200):
-    return make_response((jsonify({'payload': payload}), code))
+    return web.Response(
+        content_type="application/json",
+        headers={
+            "Access-Control-Allow-Origin": "*"
+        },
+        text=json.dumps(
+            {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
+        ),
+    )
 
 
 def make_api_request(url_server, method_name, **kwargs):
@@ -276,7 +268,22 @@ def make_api_request(url_server, method_name, **kwargs):
     return response
 
 
-app.wsgi_app = ProxyFix(app.wsgi_app)
+async def on_shutdown(app):
+    # close peer connections
+    coros = [pc.close() for pc in pcs]
+    await asyncio.gather(*coros)
+    pcs.clear()
 
-if __name__ == '__main__':
-    app.run()
+
+def run_app(port=5000, host=None):
+    app = web.Application()
+    app.on_shutdown.append(on_shutdown)
+    app.router.add_get('/', init)
+    app.router.add_get('/test_masking', test_masking)
+    app.router.add_get('/test_inpaint', test_inpaint)
+    app.router.add_post('/get_masking_image', get_masking_image)
+    app.router.add_post('/get_inpaint_image', get_inpaint_image)
+    app.router.add_post('/webrtc', webrtc)
+    app.router.add_post('/client', client)
+    app.router.add_post('/offer', offer)
+    web.run_app(app, access_log=None, port=port, ssl_context=None, host=host)
