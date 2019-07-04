@@ -6,18 +6,10 @@ import cv2
 import json
 import os
 import uuid
-from py_mini_racer import py_mini_racer
 import asyncio
 from aiohttp import web
-from jinja2 import Environment, FileSystemLoader
-# from flask import Flask, jsonify, make_response, render_template
-# from flask_cors import CORS
-
-# from werkzeug.contrib.fixers import ProxyFix
-
 from av import VideoFrame
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
-from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRecorder
 
 # local modules
 from backend import source
@@ -25,9 +17,7 @@ from backend import source
 
 # URL = "http://127.0.0.1:5000/"
 URL = "http://94.103.94.220:5000/"
-loop = asyncio.get_event_loop()
 ROOT = os.path.dirname(os.path.abspath(__file__))
-loop = asyncio.get_event_loop()
 pcs = set()
 
 
@@ -158,54 +148,40 @@ def get_image(request, masking=False, inpaint=False):
 
 
 class VideoTransformTrack(VideoStreamTrack):
-    def __init__(self, track, transform, objects):
+    def __init__(self, track, transform):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
-        self.objects = objects
 
     async def recv(self):
         frame = await self.track.recv()
-        if self.transform == "inpaint" and self.objects:
+        if self.transform == 'boxes' or self.transform == 'inpaint':
             img = frame.to_ndarray(format="bgr24")
-            objects, class_objects = source.test_objects()
-            new_img = source.get_image_inpaint(img, self.objects)
+
+            PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+            PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+
+            net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
+            # Set the input to the network
+            net.setInput(blob)
+
+            # Run the forward pass to get output from the output layers
+            boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+
+            if self.transform == "inpaint":
+                new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
+            else:
+                new_img = source.postprocess(frame=img, boxes=boxes, masks=masks, draw=True)
+
             new_frame = VideoFrame.from_ndarray(new_img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
             return new_frame
         else:
             return frame
-
-
-async def webrtc(request):
-    logging.info('Webrtc request')
-    #content = open(os.path.join(ROOT, "frontend/templates/webrtc.html"), "r").read()
-    params = await request.json()
-    j2_env = Environment(loader=FileSystemLoader(ROOT + '/templates/'),
-                         trim_blocks=True)
-    content = j2_env.get_template('webrtc.html').render(
-        offer_params=params
-    )
-
-    return web.Response(content_type="text/html", text=content)
-
-
-async def client(request):
-    params = await request.json()
-    '''
-    js = 'var offer = %s;' % params
-    js += open(os.path.join(ROOT, "templates/src/client.js"), "r").read()
-
-    ctx = py_mini_racer.MiniRacer()
-    logging.info('Run render')
-    ctx.eval(js)
-    content = ctx.call('test_fetch')
-    logging.info(content)
-    '''
-    content = loop.run_until_complete(offer(request))
-
-    return content
 
 
 async def offer(request):
@@ -236,7 +212,7 @@ async def offer(request):
     def on_track(track):
         logging.info("Track %s received" % track.kind)
 
-        local_video = VideoTransformTrack(track, transform=params["video_transform"], objects=params["objects"])
+        local_video = VideoTransformTrack(track, transform=params["video_transform"])
         pc.addTrack(local_video)
 
     # handle offer
@@ -283,7 +259,5 @@ def run_app(port=5000, host=None):
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_masking_image', get_masking_image)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
-    app.router.add_post('/webrtc', webrtc)
-    app.router.add_post('/client', client)
     app.router.add_post('/offer', offer)
     web.run_app(app, access_log=None, port=port, ssl_context=None, host=host)

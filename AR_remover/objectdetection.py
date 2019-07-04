@@ -19,7 +19,7 @@ from google.cloud import vision
 # local modules
 from backend import source
 from backend.track_object import plane_tracker
-from frontend.routes import make_api_request
+from frontend.routes import make_api_request, URL
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -49,8 +49,8 @@ def camera(video_path=0):
     logging.info('%s frames per second' % (cnt / (time.time() - start_time)))
 
 
-def google_cv_render(cap, video_size, use_server=False, render_image_by_masking=False, render_video_by_masking=False,
-                     render_image_by_inpainting=False, render_video_by_inpainting=False, number_video=None):
+def opencv_render(cap, video_size, use_server=False, render_image_by_masking=False, render_video_by_masking=False,
+                  render_image_by_inpainting=False, render_video_by_inpainting=False, number_video=None):
     if render_video_by_masking:
         masking_name = f"videos/out_videos/out_google_cv_masking_video" \
                        f"{('_%s' % number_video) if number_video else ''}.mp4"
@@ -62,6 +62,15 @@ def google_cv_render(cap, video_size, use_server=False, render_image_by_masking=
                        f"{('_%s' % number_video) if number_video else ''}.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, 30.0, video_size, True)
+
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+
+    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+
+    # Load the network
 
     render = render_video_by_masking or render_image_by_masking
     inpaint = render_video_by_inpainting or render_image_by_inpainting
@@ -84,7 +93,28 @@ def google_cv_render(cap, video_size, use_server=False, render_image_by_masking=
             cv2.destroyAllWindows()
             break
 
-        localize_objects(image_np=image_np, procent_score=procent_detecion)
+        # Create a 4D blob from a frame.
+        #blob = cv2.dnn.blobFromImage(image_np, swapRB=True, crop=False)
+        blob = cv2.dnn.blobFromImage(image_np, swapRB=True, crop=False)
+        # Set the input to the network
+        net.setInput(blob)
+
+        # Run the forward pass to get output from the output layers
+        boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+
+        # out_mask = net.forward()
+        # logging.info(str(out_mask))
+        # logging.info(str(out_mask.flatten()))
+        # boxes = net.forward(['detection_out_final'])
+        # logging.info(boxes)
+        # masks = net.forward(['detection_masks'])
+        # logging.info(masks)
+
+        # Extract the bounding box and mask for each of the detected objects
+        if inpaint:
+            image_np = source.get_image_inpaint(image_np, masks=masks, boxes=boxes)
+
+        # image_np = postprocess(image_np, boxes, masks, draw=True)
 
         cv2.imshow('object detection', cv2.resize(image_np, video_size))
 
@@ -98,11 +128,11 @@ def google_cv_render(cap, video_size, use_server=False, render_image_by_masking=
 
         def get_screen(event, x, y, flags, param):
             if event == cv2.EVENT_LBUTTONDBLCLK:
-                screen = Image.fromarray(image_np)
                 screens = os.listdir('backend/out/screens')
                 screens.sort()
-                number_screen = screens[-1][12:(13 if len(screens) < 10 else 14)]
-                screen.save('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1))
+                number_screen = screens[-1].split('_')[1].split('.')[0]
+                logging.info('last number %s' % number_screen)
+                cv2.imwrite('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
 
         cv2.setMouseCallback('object detection', get_screen)
 
@@ -131,30 +161,6 @@ def google_cv_render(cap, video_size, use_server=False, render_image_by_masking=
         logging.info("--- %s seconds ---" % (time.time() - start_time))
 
 
-def localize_objects(image_np, procent_score):
-    """Localize objects in the local image.
-
-    Args:
-    path: The path to the local file.
-    """
-
-    client = vision.ImageAnnotatorClient()
-
-    success, encoded_image = cv2.imencode('.png', image_np)
-    content = encoded_image.tobytes()
-    image = vision.types.Image(content=content)
-
-    objects = client.object_localization(
-        image=image).localized_object_annotations
-
-    print('Number of objects found: {}'.format(len(objects)))
-    for object_ in objects:
-        print('\n{} (confidence: {})'.format(object_.name, object_.score))
-        print('Normalized bounding polygon vertices: ')
-        for vertex in object_.bounding_poly.normalized_vertices:
-            print(' - ({}, {})'.format(vertex.x, vertex.y))
-
-
 def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking=False, render_video_by_masking=False,
                       render_image_by_inpainting=False, render_video_by_inpainting=False, number_video=None, tf2=False):
 
@@ -171,8 +177,8 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
-    PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
+    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mscoco_label_map.pbtxt'
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -183,6 +189,11 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
             tf.import_graph_def(od_graph_def, name='')
 
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+
+    # Load the network
+    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
     render = render_video_by_masking or render_image_by_masking
     inpaint = render_video_by_inpainting or render_image_by_inpainting
@@ -230,6 +241,8 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                     category_index,
                     use_normalized_coordinates=True,
                     line_thickness=8)
+
+
 
                 num_detections = int(out[0][0])
                 im_height, im_width = image_np.shape[:2]
@@ -300,7 +313,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                             success, image = cv2.imencode('.png', initial_image)
                             encoded_image = base64.b64encode(image.tobytes())
                             logging.info(encoded_image.decode('utf-8'))
-                            response = make_api_request('get_inpaint_image', img=encoded_image.decode('utf-8'),
+                            response = make_api_request(URL, 'get_inpaint_image', img=encoded_image.decode('utf-8'),
                                                         objects=objects)
                             try:
                                 image_np = np.array(source.decode_input_image(response['payload']['img']))
