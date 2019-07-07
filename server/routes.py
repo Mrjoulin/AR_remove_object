@@ -6,6 +6,7 @@ import cv2
 import json
 import os
 import uuid
+import time
 import asyncio
 from aiohttp import web
 from av import VideoFrame
@@ -15,8 +16,8 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from backend import source
 
 
-# URL = "http://127.0.0.1:5000/"
-URL = "http://94.103.94.220:5000/"
+URL = "http://127.0.0.1:5000/"
+# URL = "http://94.103.94.220:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
@@ -38,7 +39,9 @@ async def test_inpaint(requset):
     test_json = json.loads(open('backend/test.json', 'r').read())
     imgs = make_api_request(url_server=URL, method_name='get_inpaint_image',
                             img=test_json['img'], objects=test_json['objects'])
-    return web.Response(text=str(imgs))
+    response = await imgs.json()
+    logging.info('Return respose')
+    return web.Response(text=str(response))
 
 
 async def get_masking_image(request):
@@ -57,11 +60,22 @@ async def get_masking_image(request):
     #       "img": <BASE64-encoded masking image>
     # }
     # }
+    try:
+        request_json = await request.json()
+        logging.info('Json received')
+    except:
+        logging.error('BAD REQUEST JSON')
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps(
+                {'message': 'No Content'}
+            ),
+        )
 
-    return get_image(request, masking=True)
+    return get_image(request_json, masking=True)
 
-    #patterns = {}
-    #for class_object in class_objects:
+    # patterns = {}
+    # for class_object in class_objects:
     #    try:
     #        with open('backend/out/1/out_%s.jpg' % str(class_object), 'rb') as image_file:
     #            encoded_string = base64.b64encode(image_file.read())
@@ -85,15 +99,11 @@ async def get_inpaint_image(request):
     #       "img": <BASE64-encoded inpaint image>
     # }
     # }
-
-    return get_image(request, inpaint=True)
-
-
-def get_image(request, masking=False, inpaint=False):
-    if request.is_json:
-        request_json = request.get_json()
+    logging.info('Get request')
+    try:
+        request_json = await request.json()
         logging.info('Json received')
-    else:
+    except:
         logging.error('BAD REQUEST JSON')
         return web.Response(
             content_type="application/json",
@@ -102,6 +112,10 @@ def get_image(request, masking=False, inpaint=False):
             ),
         )
 
+    return get_image(request_json, inpaint=True)
+
+
+def get_image(request_json, masking=False, inpaint=False):
     if 'img' in request_json and isinstance(request_json['img'], str) and \
             'objects' in request_json and isinstance(request_json['objects'], list):
         img = request_json['img']
@@ -147,6 +161,37 @@ def get_image(request, masking=False, inpaint=False):
         )
 
 
+def object_detection(img, box=False, mask=False):
+    if box or mask:
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+        PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+
+        render_time = time.time()
+        net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
+        # Set the input to the network
+        net.setInput(blob)
+
+        logging.info('Start detection')
+        # Run the forward pass to get output from the output layers
+        if box and mask:
+            boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+            logging.info('Render image in %s' % (time.time() - render_time))
+            return boxes, masks
+        elif box:
+            boxes = net.forward(['detection_out_final'])
+            logging.info('Render image in %s' % (time.time() - render_time))
+            return boxes
+        else:
+            masks = net.forward(['detection_masks'])
+            logging.info('Render image in %s' % (time.time() - render_time))
+            return masks
+
+    return None
+
+
 class VideoTransformTrack(VideoStreamTrack):
     def __init__(self, track, transform):
         super().__init__()  # don't forget this!
@@ -154,31 +199,40 @@ class VideoTransformTrack(VideoStreamTrack):
         self.transform = transform
 
     async def recv(self):
+        start_time = time.time()
         frame = await self.track.recv()
         if self.transform == 'boxes' or self.transform == 'inpaint':
             img = frame.to_ndarray(format="bgr24")
 
-            PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-            PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
-
-            net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-            blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
-            # Set the input to the network
-            net.setInput(blob)
-
-            # Run the forward pass to get output from the output layers
-            boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
-
             if self.transform == "inpaint":
+                logging.info('Inpaint image')
+
+                masks, boxes = object_detection(img, box=True, mask=True)
+
                 new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
             else:
-                new_img = source.postprocess(frame=img, boxes=boxes, masks=masks, draw=True)
+                logging.info('Go to draw boxes')
+
+                boxes = object_detection(img, box=True)
+
+                new_img = source.postprocess(frame=img, boxes=boxes, draw=True)
 
             new_frame = VideoFrame.from_ndarray(new_img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
+            logging.info('Return frame in %s' % (time.time() - start_time))
+
+            return new_frame
+        elif self.transform == "edges":
+            # perform edge detection
+            img = frame.to_ndarray(format="bgr24")
+            img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
+
+            # rebuild a VideoFrame, preserving timing information
+            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            logging.info('Return frame in %s' % (start_time - time.time()))
             return new_frame
         else:
             return frame
@@ -238,8 +292,9 @@ async def offer(request):
 def make_api_request(url_server, method_name, **kwargs):
     # url = url_server + method_name
     url = url_server + method_name
+    logging.info('Send post in %s' % url)
     response = requests.post(url, json=kwargs).json()
-
+    logging.info('Get response %s' % response)
     logging.debug(str(response))
     return response
 
