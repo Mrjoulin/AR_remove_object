@@ -1,5 +1,5 @@
 import logging
-from AR_remover.objectdetection import start_rendering, camera
+from AR_remover.objectdetection import *
 import argparse
 from time import time
 import cv2
@@ -40,10 +40,10 @@ def render_video_directory(render_directory, render_masking=False, render_inpain
 
         video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        start_rendering(cap=cap, video_size=(int(video_width), int(video_height)), use_server=use_server,
-                        render_video_by_masking=render_masking, render_video_by_inpainting=render_inpaint,
-                        number_video=number_video + 1, tf2=tf2)
-    logging.info(f'---- Rendering {str(len(videos))} videos for {str(time() - render_start_time)} seconds ----')
+        tensorflow_render(cap=cap, video_size=(int(video_width), int(video_height)), use_server=use_server,
+                          render_video_by_masking=render_masking, render_video_by_inpainting=render_inpaint,
+                          number_video=number_video + 1, tf2=tf2)
+    logging.info(f'---- Rendering {str(len(videos))} videos for {render_time(time() - render_start_time)} seconds ----')
 
 
 def video_render(video_path, render_masking=False, render_inpaint=False, use_server=False, tf2=False):
@@ -63,8 +63,8 @@ def video_render(video_path, render_masking=False, render_inpaint=False, use_ser
 
     video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    start_rendering(cap=cap, video_size=(int(video_width), int(video_height)), use_server=use_server,
-                    render_video_by_masking=render_masking, render_video_by_inpainting=render_inpaint, tf2=tf2)
+    tensorflow_render(cap=cap, video_size=(int(video_width), int(video_height)), use_server=use_server,
+                      render_video_by_masking=render_masking, render_video_by_inpainting=render_inpaint, tf2=tf2)
     logging.info('---- Rendering video for %s seconds ----' % (time() - render_start_time))
 
 
@@ -78,24 +78,30 @@ def image_render(image_path, render_masking=False, render_inpaint=False, use_ser
         if success:
             return None
 
-    try:
-        cap = cv2.VideoCapture(image_path)
-    except:
-        raise FileNotFoundError('Error for rendering file')
+    if os.path.exists(image_path):
+        try:
+            cap = cv2.VideoCapture(image_path)
+        except:
+            raise FileNotFoundError('Error for rendering file')
+    else:
+        raise FileExistsError('No exists image file in %s' % image_path)
 
     video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     video_size = (int(video_width), int(video_height))
-    start_rendering(cap=cap, video_size=video_size, use_server=use_server,
-                    render_image_by_masking=render_masking, render_image_by_inpainting=render_inpaint, tf2=tf2)
+    tensorflow_render(cap=cap, video_size=video_size, use_server=use_server,
+                      render_image_by_masking=render_masking, render_image_by_inpainting=render_inpaint, tf2=tf2)
     logging.info('---- Rendering image for %s seconds ----' % (time() - render_start_time))
 
 
-def online_render(use_server=False, tf2=False):
+def online_render(use_server=False, tf2=False, opencv=False):
     # Ran an online rendering
     video_size = (800, 600)
     cap = cv2.VideoCapture(0)
-    start_rendering(cap=cap, video_size=video_size, use_server=use_server, tf2=tf2)
+    if opencv:
+        opencv_render(cap=cap, video_size=video_size, use_server=use_server)
+    else:
+        tensorflow_render(cap=cap, video_size=video_size, use_server=use_server, tf2=tf2)
 
 
 def only_camera_connection(video_path=0):
@@ -111,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--render_video', type=str, default='', help='Path a video to render')
     parser.add_argument('--render_image', type=str, default='', help='Path an image to render')
     parser.add_argument('--use_server', action='store_true', default=False, help='Use server for rendering image')
+    parser.add_argument('--opencv', '--cv', action='store_true', default=False, help='Use a OpenCv to object '
+                                                                                     'detection and masking')
     parser.add_argument('--tensorflow2', action='store_true', default=False, help='Use more accurate tensorflow')
     parser.add_argument('--inpaint', action='store_true', default=False, help='Use a inpaint rendering')
     parser.add_argument('--masking', action='store_true', default=False, help='Use a masking rendering')
@@ -126,6 +134,6 @@ if __name__ == '__main__':
         image_render(image_path=args.render_image, use_server=args.use_server, tf2=args.tensorflow2,
                      render_masking=args.masking, render_inpaint=args.inpaint)
     if args.render_online:
-        online_render(use_server=args.use_server, tf2=args.tensorflow2)
+        online_render(use_server=args.use_server, tf2=args.tensorflow2, opencv=args.opencv)
     if not args.render_directory and not args.render_video and not args.render_image and not args.render_online:
         only_camera_connection()

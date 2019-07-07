@@ -2,8 +2,8 @@ import os
 import cv2
 import time
 import base64
+import random
 import logging
-from io import BytesIO
 import numpy as np
 from PIL import Image
 from backend.generation_pattern.generate_pattern import get_generative_background
@@ -17,10 +17,8 @@ def decode_input_image(image):
             write_file.write(decode_img)
         img = Image.open(path)
         os.remove(path)
-    except Exception as e:
-        logging.error(e)
+    except:
         img = Image.fromarray(image)
-    logging.info("Image received")
     return img
 
 
@@ -127,20 +125,106 @@ def get_image_masking(_img, objects, objects_class):
     return image_np
 
 
-def get_image_inpaint(_image, objects):
+def get_image_inpaint(_image, objects=None, masks=None, boxes=None):
     image = np.array(decode_input_image(_image))
 
     image_np_mark = image.copy()
     mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
-    for _object in objects:
-        for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
-            for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
-                try:
-                    mask_np[y][x] = 255
-                except IndexError:
-                    pass
+
+    if objects:
+        image_np_mark = image.copy()
+        mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
+
+        for _object in objects:
+            for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
+                for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
+                    try:
+                        mask_np[y][x] = 255
+                    except IndexError:
+                        pass
+    elif masks.any():
+        mask_np = postprocess(mask_np, boxes, masks, draw=False)
+
     image_np = cv2.inpaint(image, mask_np, 1, cv2.INPAINT_TELEA)
     return image_np
+
+
+def postprocess(frame, boxes, masks, draw):
+    # Output size of masks is NxCxHxW where
+    # N - number of detected boxes
+    # C - number of classes (excluding background)
+    # HxW - segmentation shape
+    confThreshold = 0.4
+    maskThreshold = 0.1
+    numClasses = masks.shape[1]
+    numDetections = boxes.shape[2]
+    logging.info('Number Detections %s' % numDetections)
+
+    frameH = frame.shape[0]
+    frameW = frame.shape[1]
+
+    for i in range(numDetections):
+        box = boxes[0, 0, i]
+        mask = masks[i]
+        score = box[2]
+        if score > confThreshold:
+            classId = int(box[1])
+
+            # Extract the bounding box
+            left = int(frameW * box[3])
+            top = int(frameH * box[4])
+            right = int(frameW * box[5])
+            bottom = int(frameH * box[6])
+
+            left = max(0, min(left, frameW - 1))
+            top = max(0, min(top, frameH - 1))
+            right = max(0, min(right, frameW - 1))
+            bottom = max(0, min(bottom, frameH - 1))
+
+            # Extract the mask for the object
+            classMask = mask[classId]
+
+            if draw:
+                # Draw bounding box, colorize and show the mask on the image
+                return drawBox(frame, classId, score, left, top, right, bottom, classMask, maskThreshold)
+            else:
+                classMask = cv2.resize(classMask, (right - left + 1, bottom - top + 1))
+                mask = (classMask > maskThreshold)
+                frame[top:bottom + 1, left:right + 1] = mask.astype(np.uint8)
+    return frame
+
+
+def drawBox(frame, classId, conf, left, top, right, bottom, classMask, maskThreshold):
+    # Draw a bounding box.
+    cv2.rectangle(frame, (left, top), (right, bottom), (255, 178, 50), 3)
+
+    # Resize the mask, threshold, color and apply it on the image
+    classMask = cv2.resize(classMask, (right - left + 1, bottom - top + 1))
+    mask = (classMask > maskThreshold)
+    roi = frame[top:bottom + 1, left:right + 1][mask]
+
+    colorsFile = "AR_remover/objectdetection/colors.txt"
+    with open(colorsFile, 'rt') as f:
+        colorsStr = f.read().rstrip('\n').split('\n')
+    colors = []
+    for i in range(len(colorsStr)):
+        rgb = colorsStr[i].split(' ')
+        color = np.array([float(rgb[0]), float(rgb[1]), float(rgb[2])])
+        colors.append(color)
+
+    # color = colors[classId % len(colors)]
+    # Comment the above line and uncomment the two lines below to generate different instance colors
+    colorIndex = random.randint(0, len(colors)-1)
+    color = colors[colorIndex]
+
+    # frame[top:bottom + 1, left:right + 1][mask] = ([0.3 * color[0], 0.3 * color[1], 0.3 * color[2]] + 0.7 * roi).astype(
+    #    np.uint8)
+
+    # Draw the contours on the image
+    mask = mask.astype(np.uint8)
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(frame[top:bottom + 1, left:right + 1], contours, -1, color, 3, cv2.LINE_8, hierarchy, 100)
+    return frame
 
 
 def remove_all_generate_files():
@@ -164,8 +248,13 @@ def test_crop():
     start_time = time.time()
     img = Image.open('backend/test_img.jpg')
     arr = np.array(img)
+    objects, class_obj = test_objects()
+    get_image_masking(arr, objects, class_obj)
+    logging.info("--- %s seconds ---" % (time.time() - start_time))
 
-    test_objects = [
+
+def test_objects():
+    objects = [
         {
             'x': 20,
             'y': 50,
@@ -192,5 +281,4 @@ def test_crop():
         }
     ]
     class_obj = [1001, 1002, 1003, 1004]
-    get_image_masking(arr, test_objects, class_obj)
-    logging.info("--- %s seconds ---" % (time.time() - start_time))
+    return objects, class_obj
