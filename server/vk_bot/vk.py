@@ -124,14 +124,16 @@ def get_photo(message, user_id):
 
                     image_class_id = postprocess(image_np, boxes=boxes, get_class_to_render=True)
                     if image_class_id:
-
-                        labels_file = 'backend/object_detection_labels.json'
+                        labels_file = 'backend/new_object_detection_labels.json'
                         labels = json.loads(open(labels_file, 'r').read())
 
                         text_find_labels = "Мне удолось найти на фотографии следующие обыекты:\n"
                         for _id in range(len(image_class_id)):
+                            logging.info('Encoded name: %s' % labels[str(image_class_id[_id])]['name'])
                             text_find_labels += f'{str(_id + 1)}. ' + \
-                                                str.encode(labels[str(image_class_id[_id])]['name']).decode('unicode-escape') + '\n'
+                                                labels[str(image_class_id[_id])]['name'].encode(
+                                                    'unicode-escape'
+                                                ).decode('raw-unicode-escape') + '\n'
                         text_find_labels += 'Напиши мне числа (без запятых и пробелов), под которыми находятся объект' \
                                             'ы, которые ты хочешь убрать, или нажми на одну из кнопок на клавиатуре.'
 
