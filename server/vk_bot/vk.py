@@ -65,7 +65,8 @@ def get_photo(message, user_id):
     first_msg = True
     feedback = False
     while True:
-        logging.info(f'Get message from user {str(user_id)} : {message.text}; attachments: {str(message.attachments)}')
+        logging.info(f'Get message from user {str(user_id)} : {str.encode(message.text).decode("unicode-escape")}; '
+                     f'attachments: {str(message.attachments)}')
 
         if message.text == 'Отправить фитбэк' and not feedback:
             keyboard = VkKeyboard(one_time=True)
@@ -129,7 +130,8 @@ def get_photo(message, user_id):
 
                         text_find_labels = "Мне удолось найти на фотографии следующие обыекты:\n"
                         for _id in range(len(image_class_id)):
-                            text_find_labels += f'{str(_id + 1)}. ' + labels[str(image_class_id[_id])]['name'] + '\n'
+                            text_find_labels += f'{str(_id + 1)}. ' + \
+                                                str.encode(labels[str(image_class_id[_id])]['name']).decode('unicode-escape') + '\n'
                         text_find_labels += 'Напиши мне числа (без запятых и пробелов), под которыми находятся объект' \
                                             'ы, которые ты хочешь убрать, или нажми на одну из кнопок на клавиатуре.'
 
