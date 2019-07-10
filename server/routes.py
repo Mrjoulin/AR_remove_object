@@ -161,15 +161,21 @@ def get_image(request_json, masking=False, inpaint=False):
         )
 
 
-def object_detection(img, box=False, mask=False):
-    if box or mask:
-        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-        PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+def connect_to_tensorflow_graph():
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
 
+    render_time = time.time()
+    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+    logging.info('Connecting Tensorflow model in %s sec' % (time.time() - render_time))
+    return net
+
+
+def object_detection(net, img, box=False, mask=False):
+    if box or mask:
         render_time = time.time()
-        net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
         blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
         # Set the input to the network
         net.setInput(blob)
@@ -197,6 +203,7 @@ class VideoTransformTrack(VideoStreamTrack):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
+        self.net = connect_to_tensorflow_graph()
 
     async def recv(self):
         start_time = time.time()
@@ -207,13 +214,13 @@ class VideoTransformTrack(VideoStreamTrack):
             if self.transform == "inpaint":
                 logging.info('Inpaint image')
 
-                masks, boxes = object_detection(img, box=True, mask=True)
+                masks, boxes = object_detection(self.net, img, box=True, mask=True)
 
                 new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
             else:
                 logging.info('Go to draw boxes')
 
-                boxes = object_detection(img, box=True)
+                boxes = object_detection(self.net, img, box=True)
 
                 new_img = source.postprocess(frame=img, boxes=boxes, draw=True)
 
@@ -239,7 +246,6 @@ class VideoTransformTrack(VideoStreamTrack):
 
 
 async def offer(request):
-    logging.info('Request send' + str(request))
     params = await request.json()
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
@@ -264,7 +270,8 @@ async def offer(request):
 
     @pc.on("track")
     def on_track(track):
-        logging.info("Track %s received" % track.kind)
+        logging.info("Track {kind} received. Video transform: {transform}".format(kind=track.kind,
+                                                                                  transform=params["video_transform"]))
 
         local_video = VideoTransformTrack(track, transform=params["video_transform"])
         pc.addTrack(local_video)
@@ -275,8 +282,6 @@ async def offer(request):
     # send answer
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
-
-    logging.info('Return json')
 
     return web.Response(
         content_type="application/json",

@@ -11,7 +11,7 @@ from vk_api.longpoll import VkLongPoll
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 
 # local modules
-from server.routes import object_detection
+from server.routes import object_detection, connect_to_tensorflow_graph
 from backend.source import get_image_inpaint, postprocess
 
 
@@ -120,7 +120,8 @@ def get_photo(message, user_id):
 
                     image_np = cv2.imread(img_path)
 
-                    boxes, masks = object_detection(image_np, box=True, mask=True)
+                    net = connect_to_tensorflow_graph()
+                    boxes, masks = object_detection(net, image_np, box=True, mask=True)
 
                     image_class_id = postprocess(image_np, boxes=boxes, get_class_to_render=True)
                     if image_class_id:
