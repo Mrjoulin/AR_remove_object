@@ -19,7 +19,7 @@ from google.cloud import vision
 # local modules
 from backend import source
 from backend.track_object import plane_tracker
-from frontend.routes import make_api_request, URL
+from server.routes import make_api_request, URL
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 

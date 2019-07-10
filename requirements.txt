@@ -6,3 +6,5 @@ scikit-learn
 scikit-image
 aiohttp
 aiortc
+vk-api
+git+git://github.com/dvec/botal
