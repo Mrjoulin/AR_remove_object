@@ -12,12 +12,17 @@ from aiohttp import web
 from av import VideoFrame
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 
+# Tensorflow modules
+import tensorflow as tf
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
+
 # local modules
 from backend import source
 
 
-URL = "http://127.0.0.1:5000/"
-# URL = "http://94.103.94.220:5000/"
+# URL = "http://127.0.0.1:5000/"
+URL = "http://84.201.185.123:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
@@ -161,21 +166,103 @@ def get_image(request_json, masking=False, inpaint=False):
         )
 
 
-def connect_to_tensorflow_graph():
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+def connect_to_tensorflow_graph(tf_with_mask=True):
+    if tf_with_mask:
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+        PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+    else:
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/frozen_inference_graph.pb"
+        PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mscoco_label_map.pbtxt'
 
     render_time = time.time()
-    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+    # net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+    # net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+    # net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+    detection_graph = tf.Graph()
+    with detection_graph.as_default():
+        od_graph_def = tf.GraphDef()
+        with tf.gfile.GFile(PATH_TO_FROZEN_GRAPH, 'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
+
+    category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+
     logging.info('Connecting Tensorflow model in %s sec' % (time.time() - render_time))
-    return net
+    return {
+        'detection_graph': detection_graph,
+        'category_index': category_index
+    }
 
 
-def object_detection(net, img, box=False, mask=False):
+def object_detection(tf_gpaph,  img, session=None, box=False, mask=False, inpaint=False, return_session=False):
     if box or mask:
+        session_time = time.time()
+        detection_graph = tf_gpaph['detection_graph']
+        category_index = tf_gpaph['category_index']
+
+        if session is None:
+            sess = tf.Session(graph=detection_graph)
+        else:
+            sess = session
+
         render_time = time.time()
+        logging.info('Start object detecting on image')
+        # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
+        image_np_expanded = np.expand_dims(img, axis=0)
+        image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+        # Each box represents a part of the image where a particular object was detected.
+        boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+        # Each score represent how level of confidence for each of the objects.
+        # Score is shown on the result image, together with the class label.
+        scores = detection_graph.get_tensor_by_name('detection_scores:0')
+        classes = detection_graph.get_tensor_by_name('detection_classes:0')
+        num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+        # Actual detection.
+
+        out = sess.run(
+            [num_detections, scores, boxes, classes],
+            feed_dict={image_tensor: image_np_expanded})
+
+        if not inpaint:
+            vis_util.visualize_boxes_and_labels_on_image_array(
+                img,
+                np.squeeze(out[2][0]),
+                np.squeeze(out[3][0]).astype(np.int32),
+                np.squeeze(out[1][0]),
+                category_index,
+                use_normalized_coordinates=True,
+                line_thickness=8)
+
+        num_detections = int(out[0][0])
+        im_height, im_width = img.shape[:2]
+        percent_detection = 0.4
+        objects = []
+        for i in range(num_detections):
+            if out[1][0, i] > percent_detection:
+                position = out[2][0][i]
+                (xmin, xmax, ymin, ymax) = (
+                    position[1] * im_width, position[3] * im_width, position[0] * im_height,
+                    position[2] * im_height)
+
+                width_object = xmax - xmin
+                height_object = ymax - ymin
+                objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
+
+        logging.info(
+            str([category_index.get(value) for index, value in enumerate(out[3][0])
+                 if out[1][0, index] > percent_detection])
+        )
+
+        logging.info('Render image in %s' % (time.time() - render_time))
+        if not return_session:
+            return {
+                'objects': objects,
+                'image': img
+            }
+        else:
+            return sess
+    '''
         blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
         # Set the input to the network
         net.setInput(blob)
@@ -194,7 +281,7 @@ def object_detection(net, img, box=False, mask=False):
             masks = net.forward(['detection_masks'])
             logging.info('Render image in %s' % (time.time() - render_time))
             return masks
-
+    '''
     return None
 
 
@@ -203,27 +290,41 @@ class VideoTransformTrack(VideoStreamTrack):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
-        self.net = connect_to_tensorflow_graph()
+        self.first_frame = True
+        if self.transform == 'masks_inpaint':
+            self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=True)
+        else:
+            self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=False)
+        logging.info('Send test image and get session')
+        img = cv2.imread('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
+        self.session = object_detection(self.tf_graph, img, box=True, return_session=True)
 
     async def recv(self):
         start_time = time.time()
         frame = await self.track.recv()
-        if self.transform == 'boxes' or self.transform == 'inpaint':
+
+        if self.first_frame:
+            self.first_frame = False
+            return frame
+
+        if self.transform == 'boxes' or self.transform == 'boxes_inpaint' or self.transform == 'masks_inpaint':
             img = frame.to_ndarray(format="bgr24")
 
-            if self.transform == "inpaint":
+            if self.transform == "masks_inpaint":
                 logging.info('Inpaint image')
 
-                masks, boxes = object_detection(self.net, img, box=True, mask=True)
+                masks, boxes = object_detection(self.tf_graph, img, session=self.session, box=True, mask=True)
 
                 new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
+            elif self.transform == 'boxes_inpaint':
+                logging.info('Inpaint boxes in image')
+                objects = object_detection(self.tf_graph, img, session=self.session, box=True, inpaint=True)
+                new_img = source.get_image_inpaint(img, objects=objects['objects'])
             else:
                 logging.info('Go to draw boxes')
+                new_img = object_detection(self.tf_graph, img, session=self.session, box=True)['image']
 
-                boxes = object_detection(self.net, img, box=True)
-
-                new_img = source.postprocess(frame=img, boxes=boxes, draw=True)
-
+            # cv2.imwrite('server/imgs/last_render_img.png', new_img)
             new_frame = VideoFrame.from_ndarray(new_img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
@@ -234,6 +335,30 @@ class VideoTransformTrack(VideoStreamTrack):
             # perform edge detection
             img = frame.to_ndarray(format="bgr24")
             img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
+
+            # rebuild a VideoFrame, preserving timing information
+            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            logging.info('Return frame in %s' % (start_time - time.time()))
+            return new_frame
+        elif self.transform == "cartoon":
+            img = frame.to_ndarray(format="bgr24")
+
+            # prepare color
+            img_color = cv2.pyrDown(cv2.pyrDown(img))
+            for _ in range(6):
+                img_color = cv2.bilateralFilter(img_color, 9, 9, 7)
+            img_color = cv2.pyrUp(cv2.pyrUp(img_color))
+
+            # prepare edges
+            img_edges = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            img_edges = cv2.adaptiveThreshold(cv2.medianBlur(img_edges, 7), 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                              cv2.THRESH_BINARY, 9, 2)
+            img_edges = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2RGB)
+
+            # combine color and edges
+            img = cv2.bitwise_and(img_color, img_edges)
 
             # rebuild a VideoFrame, preserving timing information
             new_frame = VideoFrame.from_ndarray(img, format="bgr24")
@@ -312,6 +437,8 @@ async def on_shutdown(app):
 
 
 def run_app(port=5000, host=None):
+
+
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)

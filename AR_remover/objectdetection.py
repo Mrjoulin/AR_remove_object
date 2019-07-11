@@ -3,6 +3,7 @@ import sys
 import os
 import tensorflow as tf
 import cv2
+import json
 import time
 import base64
 import logging
@@ -12,9 +13,6 @@ from PIL import Image
 # Tensorflow object detection modules
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
-
-# Google Cloud Vision modules
-from google.cloud import vision
 
 # local modules
 from backend import source
@@ -63,8 +61,8 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, 30.0, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/fast_boxes/mscoco_label_map.pbtxt'
 
     net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
@@ -75,7 +73,7 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
     render = render_video_by_masking or render_image_by_masking
     inpaint = render_video_by_inpainting or render_image_by_inpainting
     # class_to_hide = []
-    procent_detecion = 0.4
+    procent_detecion = 0.5
     logging.info('Start rendering')
     while cap.isOpened():
         start_time = time.time()
@@ -100,7 +98,9 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
         net.setInput(blob)
 
         # Run the forward pass to get output from the output layers
-        boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+        boxes_time = time.time()
+        boxes = net.forward()
+        logging.info('Boxes render in %s' % (time.time() - boxes_time))
 
         # out_mask = net.forward()
         # logging.info(str(out_mask))
@@ -112,9 +112,44 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
 
         # Extract the bounding box and mask for each of the detected objects
         if inpaint:
-            image_np = source.get_image_inpaint(image_np, masks=masks, boxes=boxes)
+            image_np = source.get_image_inpaint(image_np, boxes=boxes)
+        else:
+            # logging.info('Find boxes %s' % boxes)
+            # classes_id = source.postprocess(image_np, boxes, get_class_to_render=True)
+            # logging.info('Find Classes Id : %s' % classes_id)
+            # image_np = source.postprocess(image_np, boxes, draw=True)
 
-        # image_np = postprocess(image_np, boxes, masks, draw=True)
+            rows, cols, channels = image_np.shape
+            classes = ["background", "person", "bicycle", "car", "motorcycle",
+                       "airplane", "bus", "train", "truck", "boat", "traffic light", "fire hydrant",
+                       "unknown", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse",
+                       "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "unknown", "backpack",
+                       "umbrella", "unknown", "unknown", "handbag", "tie", "suitcase", "frisbee", "skis",
+                       "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
+                       "surfboard", "tennis racket", "bottle", "unknown", "wine glass", "cup", "fork", "knife",
+                       "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog",
+                       "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed", "unknown", "dining table",
+                       "unknown", "unknown", "toilet", "unknown", "tv", "laptop", "mouse", "remote", "keyboard",
+                       "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "unknown",
+                       "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"]
+            colors = np.random.uniform(0, 255, size=(len(classes), 3))
+
+            for detection in boxes[0,0,:,:]:
+                score = float(detection[2])
+                if score > procent_detecion:
+                    left = detection[3] * cols
+                    top = detection[4] * rows
+                    right = detection[5] * cols
+                    bottom = detection[6] * rows
+
+                    # draw a red rectangle around detected objects
+                    cv2.rectangle(image_np, (int(left), int(top)), (int(right), int(bottom)), (0, 0, 255), thickness=2)
+
+                    idx = int(detection[1])
+
+                    label = "{}: {:.2f}%".format(classes[idx], score * 100)
+                    y = top - 15 if top - 15 > 15 else top + 15
+                    cv2.putText(image_np, label, (int(left), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[idx], 2)
 
         cv2.imshow('object detection', cv2.resize(image_np, video_size))
 
@@ -190,11 +225,6 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
-    # Load the network
-    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
     render = render_video_by_masking or render_image_by_masking
     inpaint = render_video_by_inpainting or render_image_by_inpainting
     # class_to_hide = []
@@ -241,8 +271,6 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                     category_index,
                     use_normalized_coordinates=True,
                     line_thickness=8)
-
-
 
                 num_detections = int(out[0][0])
                 im_height, im_width = image_np.shape[:2]

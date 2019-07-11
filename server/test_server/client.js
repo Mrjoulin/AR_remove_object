@@ -93,11 +93,11 @@ function negotiate() {
     }).then(function() {
         var offer = pc.localDescription;
 
-        return fetch('http://94.103.94.220:5000/offer', {
+        return fetch('http://84.201.185.123:5000/offer', {
             body: JSON.stringify({
                 sdp: offer.sdp,
                 type: offer.type,
-                video_transform: ''
+                video_transform: 'boxes'
             }),
             /*
             headers: {
