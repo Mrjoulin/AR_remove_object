@@ -132,6 +132,7 @@ def get_image_inpaint(_image, objects=None, masks=None, boxes=None, classes_to_r
     mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
 
     if objects:
+        start_time = time.time()
         for _object in objects:
             for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
                 for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
@@ -139,10 +140,11 @@ def get_image_inpaint(_image, objects=None, masks=None, boxes=None, classes_to_r
                         mask_np[y][x] = 255
                     except IndexError:
                         pass
+        logging.info('Add mask: %s' % (time.time() - start_time))
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
-    image_np = cv2.inpaint(image, mask_np, 1, cv2.INPAINT_TELEA)
+    image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
     return image_np
 
 
@@ -263,10 +265,10 @@ def remove_all_generate_files():
 def test_crop():
     # testing crop image
     start_time = time.time()
-    img = Image.open('backend/test_img.jpg')
+    img = Image.open('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
     arr = np.array(img)
     objects, class_obj = test_objects()
-    get_image_masking(arr, objects, class_obj)
+    get_image_inpaint(arr, objects=objects)
     logging.info("--- %s seconds ---" % (time.time() - start_time))
 
 

@@ -25,7 +25,7 @@ def main():
     try:
         fn = sys.argv[1]
     except:
-        fn = 'fruits.jpg'
+        fn = '/home/joulin/projects/AR_remove_object/server/vk_bot/render_imgs/to_render_img_456243552.jpg'
 
     img = cv.imread(fn)
     if img is None:
@@ -42,13 +42,21 @@ def main():
             break
         if ch == ord(' '):
             start_time = time()
-            res = cv.inpaint(img_mark, mark, 3, cv.INPAINT_TELEA)
-            print(start_time-time(), 'seconds')
-            cv.imshow('inpaint big', res)
-            start_time = time()
             res = cv.inpaint(img_mark, mark, 1, cv.INPAINT_TELEA)
-            print(start_time - time(), 'seconds')
-            cv.imshow('inpaint small', res)
+            print('big Telea:', time() - start_time, 'seconds')
+            cv.imshow('inpaint big Telea', res)
+            start_time = time()
+            res = cv.inpaint(img_mark, mark, 1, cv.INPAINT_NS)
+            print('big NS:', time() - start_time, 'seconds')
+            cv.imshow('inpaint big NS', res)
+            start_time = time()
+            res = cv.inpaint(img_mark, mark, 0.1, cv.INPAINT_TELEA)
+            print('Small Telea:', time() - start_time, 'seconds')
+            cv.imshow('inpaint small Telea', res)
+            start_time = time()
+            res = cv.inpaint(img_mark, mark, 0.1, cv.INPAINT_NS)
+            print('Small NS:', time() - start_time, 'seconds')
+            cv.imshow('inpaint small NS', res)
         if ch == ord('r'):
             img_mark[:] = img
             mark[:] = 0
