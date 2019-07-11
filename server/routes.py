@@ -171,7 +171,7 @@ def connect_to_tensorflow_graph(tf_with_mask=True):
         PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
         PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
     else:
-        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/frozen_inference_graph.pb"
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
         PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mscoco_label_map.pbtxt'
 
     render_time = time.time()
@@ -437,8 +437,6 @@ async def on_shutdown(app):
 
 
 def run_app(port=5000, host=None):
-
-
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
