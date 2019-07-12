@@ -1,6 +1,7 @@
 import os
 import cv2
 import json
+import time
 import random
 import logging
 import requests
@@ -120,9 +121,21 @@ def get_photo(message, user_id):
 
                     image_np = cv2.imread(img_path)
 
-                    net = connect_to_tensorflow_graph()
-                    boxes, masks = object_detection(net, image_np, box=True, mask=True)
+                    render_time = time.time()
+                    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
+                    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+                    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
+                    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
 
+                    blob = cv2.dnn.blobFromImage(image_np, swapRB=True, crop=False)
+                    # Set the input to the network
+                    net.setInput(blob)
+                    logging.info('Start detection')
+                    # Run the forward pass to get output from the output layers
+                    boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+                    logging.info('Render image in %s' % (time.time() - render_time))
+                    
                     image_class_id = postprocess(image_np, boxes=boxes, get_class_to_render=True)
                     if image_class_id:
                         labels_file = 'backend/new_object_detection_labels.json'

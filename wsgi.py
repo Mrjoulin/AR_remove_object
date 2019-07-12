@@ -1,9 +1,8 @@
 import logging
 import argparse
-import threading
 import absl.logging
 from server.routes import run_app
-from server.vk_bot.vk import handler
+from server.bots.run import run_bots
 
 logging.root.removeHandler(absl.logging._absl_handler)
 absl.logging._warn_preinit_stderr = False
@@ -20,7 +19,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Ran bots
-    logging.info('Start vk-bot')
-    threading.Thread(target=handler.run).start()
+    logging.info('Start bots')
+    run_bots()
 
     run_app(port=args.port, host=args.host)

@@ -29,8 +29,18 @@ pcs = set()
 
 async def init(request):
     logging.info('Run init page')
-    content = open(os.path.join(ROOT, "templates/index.html"), "r").read()
+    content = open(os.path.join(ROOT, "templates/thanosar/index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
+
+
+async def init_css(request):
+    content = open(os.path.join(ROOT, "templates/thanosar/css/style.css"), "r").read()
+    return web.Response(content_type="text/css", text=content)
+
+
+async def init_js(request):
+    content = open(os.path.join(ROOT, "templates/thanosar/js/webRTC.js"), "r").read()
+    return web.Response(content_type="application/javascript", text=content)
 
 
 async def test_masking(request):
@@ -197,7 +207,7 @@ def connect_to_tensorflow_graph(tf_with_mask=True):
 
 def object_detection(tf_gpaph,  img, session=None, box=False, mask=False, inpaint=False, return_session=False):
     if box or mask:
-        session_time = time.time()
+        render_time = time.time()
         detection_graph = tf_gpaph['detection_graph']
         category_index = tf_gpaph['category_index']
 
@@ -206,7 +216,6 @@ def object_detection(tf_gpaph,  img, session=None, box=False, mask=False, inpain
         else:
             sess = session
 
-        render_time = time.time()
         logging.info('Start object detecting on image')
         # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
         image_np_expanded = np.expand_dims(img, axis=0)
@@ -291,13 +300,14 @@ class VideoTransformTrack(VideoStreamTrack):
         self.track = track
         self.transform = transform
         self.first_frame = True
-        if self.transform == 'masks_inpaint':
-            self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=True)
-        else:
-            self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=False)
-        logging.info('Send test image and get session')
-        img = cv2.imread('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
-        self.session = object_detection(self.tf_graph, img, box=True, return_session=True)
+        if self.transform:
+            if self.transform == 'masks_inpaint':
+                self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=True)
+            else:
+                self.tf_graph = connect_to_tensorflow_graph(tf_with_mask=False)
+            logging.info('Send test image and get session')
+            img = cv2.imread('/server/bots/render_imgs/to_render_img_456245879.jpg')
+            self.session = object_detection(self.tf_graph, img, box=True, return_session=True)
 
     async def recv(self):
         start_time = time.time()
@@ -305,23 +315,21 @@ class VideoTransformTrack(VideoStreamTrack):
 
         if self.first_frame:
             self.first_frame = False
+            logging.info('Return first frame')
             return frame
 
         if self.transform == 'boxes' or self.transform == 'boxes_inpaint' or self.transform == 'masks_inpaint':
             img = frame.to_ndarray(format="bgr24")
 
             if self.transform == "masks_inpaint":
-                logging.info('Inpaint image')
-
                 masks, boxes = object_detection(self.tf_graph, img, session=self.session, box=True, mask=True)
-
                 new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
+
             elif self.transform == 'boxes_inpaint':
-                logging.info('Inpaint boxes in image')
                 objects = object_detection(self.tf_graph, img, session=self.session, box=True, inpaint=True)
                 new_img = source.get_image_inpaint(img, objects=objects['objects'])
+
             else:
-                logging.info('Go to draw boxes')
                 new_img = object_detection(self.tf_graph, img, session=self.session, box=True)['image']
 
             # cv2.imwrite('server/imgs/last_render_img.png', new_img)
@@ -340,7 +348,7 @@ class VideoTransformTrack(VideoStreamTrack):
             new_frame = VideoFrame.from_ndarray(img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
-            logging.info('Return frame in %s' % (start_time - time.time()))
+            logging.info('Return frame in %s' % (time.time() - start_time))
             return new_frame
         elif self.transform == "cartoon":
             img = frame.to_ndarray(format="bgr24")
@@ -364,9 +372,10 @@ class VideoTransformTrack(VideoStreamTrack):
             new_frame = VideoFrame.from_ndarray(img, format="bgr24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
-            logging.info('Return frame in %s' % (start_time - time.time()))
+            logging.info('Return frame in %s' % (time.time() - start_time))
             return new_frame
         else:
+            logging.info('Return frame in %s' % (time.time() - start_time))
             return frame
 
 
@@ -440,6 +449,8 @@ def run_app(port=5000, host=None):
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
+    app.router.add_get('/css/style.css', init_css)
+    app.router.add_get('/js/webRTC.js', init_js)
     app.router.add_get('/test_masking', test_masking)
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_masking_image', get_masking_image)

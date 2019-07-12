@@ -93,7 +93,7 @@ function negotiate() {
     }).then(function() {
         var offer = pc.localDescription;
 
-        return fetch('http://84.201.133.73:8000/offer', {
+        return fetch('http://localhost:5000/offer', {
             body: JSON.stringify({
                 sdp: offer.sdp,
                 type: offer.type,
