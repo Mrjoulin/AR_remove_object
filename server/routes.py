@@ -3,6 +3,7 @@ import requests
 import logging
 import base64
 import cv2
+import ssl
 import json
 import os
 import uuid
@@ -22,19 +23,19 @@ from backend import source
 
 
 # URL = "http://127.0.0.1:5000/"
-URL = "http://84.201.185.123:5000/"
+URL = "http://84.201.133.73:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
 
 async def init(request):
     logging.info('Run init page')
-    content = open(os.path.join(ROOT, "templates/thanosar/index.html"), "r").read()
+    content = open(os.path.join(ROOT, "templates/true_thanos_web/index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
 
 async def init_css(request):
-    content = open(os.path.join(ROOT, "templates/thanosar/css/style.css"), "r").read()
+    content = open(os.path.join(ROOT, "templates/true_thanos_web/static/css/style.css"), "r").read()
     return web.Response(content_type="text/css", text=content)
 
 
@@ -445,15 +446,22 @@ async def on_shutdown(app):
     pcs.clear()
 
 
-def run_app(port=5000, host=None):
+def run_app(port=5000, host=None, use_cert=False):
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
-    app.router.add_get('/css/style.css', init_css)
-    app.router.add_get('/js/webRTC.js', init_js)
+    app.router.add_get('/static/css/style.css', init_css)
+    # app.router.add_get('/js/webRTC.js', init_js)
     app.router.add_get('/test_masking', test_masking)
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_masking_image', get_masking_image)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)
-    web.run_app(app, access_log=None, port=port, ssl_context=None, host=host)
+
+    if use_cert:
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain('server/ssl_certs/ca.pem', 'server/ssl_certs/ca.key')
+    else:
+        ssl_context = None
+
+    web.run_app(app, access_log=None, port=port, ssl_context=ssl_context, host=host)

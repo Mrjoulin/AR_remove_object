@@ -15,11 +15,12 @@ logging.basicConfig(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Server options')
     parser.add_argument("--host", default=None, help="Host server")
-    parser.add_argument("--port", type=int, default=None, help="Port server (default: 8080)")
+    parser.add_argument("--port", type=int, default=5000, help="Port server (default: 5000)")
+    parser.add_argument("--use-ssl", action='store_true', default=False, help='Use SSL certificate (for HTTPS)')
     args = parser.parse_args()
 
     # Ran bots
     logging.info('Start bots')
     run_bots()
 
-    run_app(port=args.port, host=args.host)
+    run_app(port=args.port, host=args.host, use_cert=args.use_ssl)
