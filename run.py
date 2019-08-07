@@ -1,10 +1,16 @@
-import logging
-from AR_remover.objectdetection import *
-import argparse
-from time import time
-import cv2
 import os
+import cv2
+import logging
+import argparse
+import absl.logging
+from time import time
 
+# Local modules
+from AR_remover.objectdetection import *
+
+
+logging.root.removeHandler(absl.logging._absl_handler)
+absl.logging._warn_preinit_stderr = False
 logging.basicConfig(
     format='[%(filename)s:%(lineno)s - %(funcName)20s()]%(levelname)s:%(name)s:%(message)s',
     level=logging.INFO
@@ -43,7 +49,7 @@ def render_video_directory(render_directory, render_masking=False, render_inpain
         tensorflow_render(cap=cap, video_size=(int(video_width), int(video_height)), use_server=use_server,
                           render_video_by_masking=render_masking, render_video_by_inpainting=render_inpaint,
                           number_video=number_video + 1, tf2=tf2)
-    logging.info(f'---- Rendering {str(len(videos))} videos for {render_time(time() - render_start_time)} seconds ----')
+    logging.info(f'---- Rendering {str(len(videos))} videos for {str(time() - render_start_time)} seconds ----')
 
 
 def video_render(video_path, render_masking=False, render_inpaint=False, use_server=False, tf2=False):
@@ -91,7 +97,7 @@ def image_render(image_path, render_masking=False, render_inpaint=False, use_ser
     video_size = (int(video_width), int(video_height))
     tensorflow_render(cap=cap, video_size=video_size, use_server=use_server,
                       render_image_by_masking=render_masking, render_image_by_inpainting=render_inpaint, tf2=tf2)
-    logging.info('---- Rendering image for %s seconds ----' % (time() - render_start_time))
+    logging.info('---- Rendering image for %s seconds ----' % str(time() - render_start_time))
 
 
 def online_render(use_server=False, tf2=False, opencv=False):
@@ -127,13 +133,13 @@ if __name__ == '__main__':
     if args.render_directory:
         render_video_directory(render_directory=args.render_directory, use_server=args.use_server,
                                render_masking=args.masking, render_inpaint=args.inpaint, tf2=args.tensorflow2)
-    if args.render_video:
+    elif args.render_video:
         video_render(video_path=args.render_video, use_server=args.use_server, tf2=args.tensorflow2,
                      render_masking=args.masking, render_inpaint=args.inpaint)
-    if args.render_image:
+    elif args.render_image:
         image_render(image_path=args.render_image, use_server=args.use_server, tf2=args.tensorflow2,
                      render_masking=args.masking, render_inpaint=args.inpaint)
-    if args.render_online:
+    elif args.render_online:
         online_render(use_server=args.use_server, tf2=args.tensorflow2, opencv=args.opencv)
-    if not args.render_directory and not args.render_video and not args.render_image and not args.render_online:
+    else:
         only_camera_connection()

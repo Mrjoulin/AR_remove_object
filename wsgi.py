@@ -2,7 +2,7 @@ import logging
 import argparse
 import absl.logging
 from server.routes import run_app
-from server.bots.run import run_bots
+
 
 logging.root.removeHandler(absl.logging._absl_handler)
 absl.logging._warn_preinit_stderr = False
@@ -16,11 +16,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Server options')
     parser.add_argument("--host", default=None, help="Host server")
     parser.add_argument("--port", type=int, default=5000, help="Port server (default: 5000)")
-    parser.add_argument("--use-ssl", action='store_true', default=False, help='Use SSL certificate (for HTTPS)')
+    parser.add_argument("--cert-file", help="SSL certificate file (for HTTPS)")
+    parser.add_argument("--key-file", help="SSL key file (for HTTPS)")
     args = parser.parse_args()
 
-    # Ran bots
-    logging.info('Start bots')
-    run_bots()
-
-    run_app(port=args.port, host=args.host, use_cert=args.use_ssl)
+    run_app(port=args.port, host=args.host, cert_file=args.cert_file, key_file=args.key_file)

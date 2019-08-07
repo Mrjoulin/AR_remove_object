@@ -3,7 +3,6 @@ import sys
 import os
 import tensorflow as tf
 import cv2
-import json
 import time
 import base64
 import logging
@@ -16,7 +15,7 @@ from object_detection.utils import visualization_utils as vis_util
 
 # local modules
 from backend import source
-from backend.track_object import plane_tracker
+from backend.feature.track_object import plane_tracker
 from server.routes import make_api_request, URL
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
@@ -61,8 +60,8 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, 30.0, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/fast_boxes/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/tensorflow-graph/fast_boxes/mscoco_label_map.pbtxt'
 
     net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
@@ -112,7 +111,7 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
 
         # Extract the bounding box and mask for each of the detected objects
         if inpaint:
-            image_np = source.get_image_inpaint(image_np, boxes=boxes)
+            image_np = source.get_mask_objects(image_np, boxes=boxes)
         else:
             # logging.info('Find boxes %s' % boxes)
             # classes_id = source.postprocess(image_np, boxes, get_class_to_render=True)
@@ -167,7 +166,7 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
                 screens.sort()
                 number_screen = screens[-1].split('_')[1].split('.')[0]
                 logging.info('last number %s' % number_screen)
-                cv2.imwrite('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
+                cv2.imwrite('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
 
         cv2.setMouseCallback('object detection', get_screen)
 
@@ -212,8 +211,8 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
+    PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -349,7 +348,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                                 raise KeyError(response['payload']['message'])
                             logging.info('Get inpaint image')
                         else:
-                            image_np = source.get_image_inpaint(initial_image, objects)
+                            image_np = source.get_mask_objects(initial_image, objects)
 
                 if render_image_by_masking or render_image_by_inpainting:
                     path_to_save = 'AR_remover/imgs/render_' + ('masking' if render_image_by_masking else 'inpaint') + \
@@ -375,7 +374,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                         screens = os.listdir('backend/out/screens')
                         screens.sort()
                         number_screen = screens[-1][12:(13 if len(screens) < 10 else 14)]
-                        screen.save('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1))
+                        screen.save('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1))
 
                 cv2.setMouseCallback('object detection', get_screen)
 

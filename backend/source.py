@@ -6,7 +6,7 @@ import random
 import logging
 import numpy as np
 from PIL import Image
-from backend.generation_pattern.generate_pattern import get_generative_background
+from backend.masking.generate_pattern import get_generative_background
 
 
 def decode_input_image(image):
@@ -87,7 +87,7 @@ def save_background_image(img, objects, obj, number_object, bg_w, bg_h):
             top,
             bg_w + left,
             bg_h + top))
-        path = f'backend/background/background_{str(number_object)}.png'
+        path = f'backend/masking/imgs/background/background_{str(number_object)}.png'
         bg.save(path)
 
         return {'success': True, 'bg_path': path}
@@ -125,7 +125,7 @@ def get_image_masking(_img, objects, objects_class):
     return image_np
 
 
-def get_image_inpaint(_image, objects=None, masks=None, boxes=None, classes_to_render=None):
+def get_mask_objects(_image, objects=None, masks=None, boxes=None, classes_to_render=None):
     image = np.array(decode_input_image(_image))
 
     image_np_mark = image.copy()
@@ -138,10 +138,10 @@ def get_image_inpaint(_image, objects=None, masks=None, boxes=None, classes_to_r
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
-    start_time = time.time()
-    image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
-    logging.info('Inpaint image: %s sec' % (time.time() - start_time))
-    return image_np
+    # start_time = time.time()
+    # image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
+    # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
+    return mask_np
 
 
 def postprocess(frame, boxes, masks=None, draw=False, get_class_to_render=False, classes_to_render=None):
@@ -243,7 +243,7 @@ def drawBox(frame, classId, conf, left, top, right, bottom, classMask, maskThres
 
 
 def remove_all_generate_files():
-    pattern_path = 'backend/generation_pattern/pattern'
+    pattern_path = 'backend/masking/pattern'
     remove_pathes = [
         'backend/background/',
         'backend/out/1/',
@@ -264,7 +264,7 @@ def test_crop():
     img = Image.open('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
     arr = np.array(img)
     objects, class_obj = test_objects()
-    get_image_inpaint(arr, objects=objects)
+    get_mask_objects(arr, objects=objects)
     logging.info("--- %s seconds ---" % (time.time() - start_time))
 
 
