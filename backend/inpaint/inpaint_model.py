@@ -2,7 +2,6 @@
 import logging
 
 import cv2
-import neuralgym as ng
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import arg_scope
 
@@ -14,13 +13,10 @@ from neuralgym.ops.gan_ops import gan_wgan_loss, gradients_penalty
 from neuralgym.ops.gan_ops import random_interpolates
 
 # Local imports
-from inpaint_ops import gen_conv, gen_deconv, dis_conv
-from inpaint_ops import random_bbox, bbox2mask, local_patch
-from inpaint_ops import spatial_discounting_mask
-from inpaint_ops import resize_mask_like, contextual_attention
-
-
-logger = logging.getLogger()
+from backend.inpaint.inpaint_ops import gen_conv, gen_deconv, dis_conv
+from backend.inpaint.inpaint_ops import random_bbox, bbox2mask, local_patch
+from backend.inpaint.inpaint_ops import spatial_discounting_mask
+from backend.inpaint.inpaint_ops import resize_mask_like, contextual_attention
 
 
 class InpaintCAModel(Model):
@@ -154,10 +150,10 @@ class InpaintCAModel(Model):
             padding=config.PADDING)
         if config.PRETRAIN_COARSE_NETWORK:
             batch_predicted = x1
-            logger.info('Set batch_predicted to x1.')
+            logging.info('Set batch_predicted to x1.')
         else:
             batch_predicted = x2
-            logger.info('Set batch_predicted to x2.')
+            logging.info('Set batch_predicted to x2.')
         losses = {}
         # apply mask and complete image
         batch_complete = batch_predicted*mask + batch_incomplete*(1.-mask)
@@ -239,11 +235,11 @@ class InpaintCAModel(Model):
         else:
             losses['g_loss'] = config.GAN_LOSS_ALPHA * losses['g_loss']
         losses['g_loss'] += config.L1_LOSS_ALPHA * losses['l1_loss']
-        logger.info('Set L1_LOSS_ALPHA to %f' % config.L1_LOSS_ALPHA)
-        logger.info('Set GAN_LOSS_ALPHA to %f' % config.GAN_LOSS_ALPHA)
+        logging.info('Set L1_LOSS_ALPHA to %f' % config.L1_LOSS_ALPHA)
+        logging.info('Set GAN_LOSS_ALPHA to %f' % config.GAN_LOSS_ALPHA)
         if config.AE_LOSS:
             losses['g_loss'] += config.AE_LOSS_ALPHA * losses['ae_loss']
-            logger.info('Set AE_LOSS_ALPHA to %f' % config.AE_LOSS_ALPHA)
+            logging.info('Set AE_LOSS_ALPHA to %f' % config.AE_LOSS_ALPHA)
         g_vars = tf.get_collection(
             tf.GraphKeys.TRAINABLE_VARIABLES, 'inpaint_net')
         d_vars = tf.get_collection(
@@ -267,10 +263,10 @@ class InpaintCAModel(Model):
             training=False, padding=config.PADDING)
         if config.PRETRAIN_COARSE_NETWORK:
             batch_predicted = x1
-            logger.info('Set batch_predicted to x1.')
+            logging.info('Set batch_predicted to x1.')
         else:
             batch_predicted = x2
-            logger.info('Set batch_predicted to x2.')
+            logging.info('Set batch_predicted to x2.')
         # apply mask and reconstruct
         batch_complete = batch_predicted*mask + batch_incomplete*(1.-mask)
         # global image visualization
@@ -292,10 +288,10 @@ class InpaintCAModel(Model):
                 tf.constant(config.HEIGHT), tf.constant(config.WIDTH))
         return self.build_infer_graph(batch_data, config, bbox, name)
 
-
     def build_server_graph(self, batch_data, reuse=False, is_training=False):
         """
         """
+        logging.info('Build server graph')
         # generate mask, 1 represents masked point
         batch_raw, masks_raw = tf.split(batch_data, 2, axis=2)
         masks = tf.cast(masks_raw[0:1, :, :, 0:1] > 127.5, tf.float32)

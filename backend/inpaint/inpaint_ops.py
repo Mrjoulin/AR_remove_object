@@ -11,7 +11,6 @@ from neuralgym.ops.loss_ops import *
 from neuralgym.ops.summary_ops import *
 
 
-logger = logging.getLogger()
 np.random.seed(2018)
 
 
@@ -198,7 +197,7 @@ def spatial_discounting_mask(config):
     gamma = config.SPATIAL_DISCOUNTING_GAMMA
     shape = [1, config.HEIGHT, config.WIDTH, 1]
     if config.DISCOUNTED_MASK:
-        logger.info('Use spatial discounting l1 loss.')
+        logging.info('Use spatial discounting l1 loss.')
         mask_values = np.ones((config.HEIGHT, config.WIDTH))
         for i in range(config.HEIGHT):
             for j in range(config.WIDTH):
@@ -343,13 +342,13 @@ def test_contextual_attention(args):
     h, w, _ = b.shape
     b = b[:h//grid*grid, :w//grid*grid, :]
     b = np.expand_dims(b, 0)
-    logger.info('Size of imageA: {}'.format(b.shape))
+    logging.info('Size of imageA: {}'.format(b.shape))
 
     f = cv2.imread(args.imageB)
     h, w, _ = f.shape
     f = f[:h//grid*grid, :w//grid*grid, :]
     f = np.expand_dims(f, 0)
-    logger.info('Size of imageB: {}'.format(f.shape))
+    logging.info('Size of imageB: {}'.format(f.shape))
 
     with tf.Session() as sess:
         bt = tf.constant(b, dtype=tf.float32)

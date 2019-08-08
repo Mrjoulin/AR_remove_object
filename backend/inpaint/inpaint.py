@@ -11,17 +11,20 @@ import tensorflow as tf
 from backend.inpaint.inpaint_model import InpaintCAModel
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-INPAINT_MODEL_DIR = ROOT + 'models/release_places2_256/'
+INPAINT_MODEL_DIR = ROOT + '/models/release_places2_256/'
 
 
 class Inpainting:
-    def __init__(self):
+    def __init__(self, session=None):
         os.environ['CUDA_VISIBLE_DEVICES'] = '0'
         # ng.get_gpus(1)
         self.model = InpaintCAModel()
-        sess_config = tf.ConfigProto()
-        sess_config.gpu_options.allow_growth = True
-        self.session = tf.Session(config=sess_config)
+        if session is None:
+            sess_config = tf.ConfigProto()
+            sess_config.gpu_options.allow_growth = True
+            self.session = tf.Session(config=sess_config)
+        else:
+            self.session = session
 
     def load_model(self):
         load_model_time = time.time()
@@ -39,7 +42,7 @@ class Inpainting:
 
     def get_output(self, image, mask, reuse):
         preload_time = time.time()
-        logging.info('Image shape:', image.shape)
+        logging.info(f'Image shape: {str(image.shape)}, mask shape: {str(mask.shape)}')
         image = np.expand_dims(image, 0)
         mask = np.expand_dims(mask, 0)
         input_image = np.concatenate([image, mask], axis=2)
@@ -73,3 +76,10 @@ if __name__ == '__main__':
     result = model.session.run(response)
     cv2.imwrite(args.output, result[0][:, :, ::-1])
     print('---- Frame time %s sec ----' % (time.time() - frame_time))
+    response = model.get_output(cv2.imread("server/imgs/inpaint_480.png"), cv2.imread("server/imgs/mask_480.png"), reuse=tf.AUTO_REUSE)
+    frame_time = time.time()
+    result = model.session.run(response)
+    cv2.imwrite(args.output, result[0][:, :, ::-1])
+    print('---- Frame time %s sec ----' % (time.time() - frame_time))
+
+

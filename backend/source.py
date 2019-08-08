@@ -129,7 +129,7 @@ def get_mask_objects(_image, objects=None, masks=None, boxes=None, classes_to_re
     image = np.array(decode_input_image(_image))
 
     image_np_mark = image.copy()
-    mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
+    mask_np = np.zeros(image_np_mark.shape, np.uint8)
 
     if objects:
         for _object in objects:

@@ -161,28 +161,23 @@ class VideoTransformTrack(VideoStreamTrack):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
-        self.first_frame = True
         if self.transform:
             self.tf_graph = connect_to_tensorflow_graph()
             logging.info('Send test image and get session')
             img = cv2.imread('server/imgs/render_img.jpeg')
             self.session = object_detection(self.tf_graph, img)
 
-            self.session = Inpainting()
-            self.session.get_output(cv2.imread("server/imgs/inpaint.png"),
-                                    cv2.imread("server/imgs/mask_256.png"),
-                                    reuse=False)
-            self.session.load_model()
-            self.session.session.run()
+            # Load inpaint model
+            self.inpaint_model = Inpainting(session=self.session)
+            output = self.inpaint_model.get_output(cv2.imread("server/imgs/inpaint.png"),
+                                                   cv2.imread("server/imgs/mask_256.png"),
+                                                   reuse=False)
+            self.inpaint_model.load_model()
+            self.inpaint_model.session.run(output)
 
     async def recv(self):
         start_time = time.time()
         frame = await self.track.recv()
-
-        if self.first_frame:
-            self.first_frame = False
-            logging.info('Return first frame')
-            return frame
 
         if self.transform:
             img = frame.to_ndarray(format="bgr24")
@@ -193,11 +188,13 @@ class VideoTransformTrack(VideoStreamTrack):
                                             inpaint=self.transform == 'inpaint')
                 img = response['image']
                 objects = response['objects']
+
                 if self.transform == 'inpaint':
                     # Remove needed objects buy inpaint algorithm
                     mask = source.get_mask_objects(img, objects=objects)
-                    output = self.session.get_output(img, mask, reuse=True)
-                    result = self.session.session.run(output)
+                    output = self.inpaint_model.get_output(img, mask, reuse=True)
+                    # Inpaint image
+                    result = self.inpaint_model.session.run(output)
                     img = result[0][:, :, ::-1]
 
             elif self.transform == "edges":

@@ -1,13 +1,14 @@
-import numpy as np
-import sys
 import os
-import tensorflow as tf
+import sys
 import cv2
 import time
 import base64
 import logging
-from distutils.version import StrictVersion
+import numpy as np
 from PIL import Image
+import tensorflow as tf
+from distutils.version import StrictVersion
+
 
 # Tensorflow object detection modules
 from object_detection.utils import label_map_util
@@ -16,7 +17,7 @@ from object_detection.utils import visualization_utils as vis_util
 # local modules
 from backend import source
 from backend.feature.track_object import plane_tracker
-from server.routes import make_api_request, URL
+from backend.inpaint.inpaint import Inpainting
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -225,13 +226,24 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
     render = render_video_by_masking or render_image_by_masking
-    inpaint = render_video_by_inpainting or render_image_by_inpainting
+    inpaint = True  # render_video_by_inpainting or render_image_by_inpainting
     # class_to_hide = []
     procent_detecion = 0.4
     render_frames = 0
+    sess_config = tf.ConfigProto()
+    sess_config.gpu_options.allow_growth = True
     logging.info('Start rendering')
     with detection_graph.as_default():
-        with tf.Session(graph=detection_graph) as sess:
+        with tf.Session(graph=detection_graph, config=sess_config) as sess:
+
+            # Load inpaint model
+            inpaint_session = Inpainting(session=sess)
+            output = inpaint_session.get_output(cv2.imread("server/imgs/inpaint.png"),
+                                                cv2.imread("server/imgs/mask_256.png"),
+                                                reuse=False)
+            inpaint_session.load_model()
+            inpaint_session.session.run(output)
+
             while cap.isOpened():
                 start_time = time.time()
                 ret, image_np = cap.read()
@@ -317,18 +329,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                 if objects:
                     # get masking image
                     if render:
-                        if use_server:
-                            success, image = cv2.imencode('.png', initial_image)
-                            encoded_image = base64.b64encode(image.tobytes())
-                            response = make_api_request('get_masking_image', img=encoded_image.decode('utf-8'),
-                                                        objects=objects, class_objects=objects_class)
-                            try:
-                                image_np = np.array(source.decode_input_image(response['payload']['img']))
-                            except KeyError:
-                                raise KeyError(response['payload']['message'])
-                            logging.info('Get masking image')
-                        else:
-                            image_np = source.get_image_masking(initial_image, objects, objects_class)
+                        image_np = source.get_image_masking(initial_image, objects, objects_class)
 
                         # for class_img in class_img_to_hide:
                         #    class_to_hide.append(class_img)
@@ -336,19 +337,10 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                     # get inpainting image
                     if inpaint:
-                        if use_server:
-                            success, image = cv2.imencode('.png', initial_image)
-                            encoded_image = base64.b64encode(image.tobytes())
-                            logging.info(encoded_image.decode('utf-8'))
-                            response = make_api_request(URL, 'get_inpaint_image', img=encoded_image.decode('utf-8'),
-                                                        objects=objects)
-                            try:
-                                image_np = np.array(source.decode_input_image(response['payload']['img']))
-                            except KeyError:
-                                raise KeyError(response['payload']['message'])
-                            logging.info('Get inpaint image')
-                        else:
-                            image_np = source.get_mask_objects(initial_image, objects)
+                        mask_np = source.get_mask_objects(initial_image, objects)
+                        output = inpaint_session.get_output(initial_image, mask_np, reuse=True)
+                        result = inpaint_session.session.run(output)
+                        image_np = result[0][:, :, ::-1]
 
                 if render_image_by_masking or render_image_by_inpainting:
                     path_to_save = 'AR_remover/imgs/render_' + ('masking' if render_image_by_masking else 'inpaint') + \
@@ -370,11 +362,12 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                 def get_screen(event, x, y, flags, param):
                     if event == cv2.EVENT_LBUTTONDBLCLK:
-                        screen = Image.fromarray(image_np)
                         screens = os.listdir('backend/out/screens')
                         screens.sort()
-                        number_screen = screens[-1][12:(13 if len(screens) < 10 else 14)]
-                        screen.save('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1))
+                        number_screen = screens[-1].split('_')[1].split('.')[0]
+                        logging.info('last number %s' % number_screen)
+                        cv2.imwrite('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1),
+                                    image_np)
 
                 cv2.setMouseCallback('object detection', get_screen)
 
