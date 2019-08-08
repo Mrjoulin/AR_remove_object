@@ -1,9 +1,11 @@
 import logging
 import argparse
-import threading
+import absl.logging
 from server.routes import run_app
-from server.vk_bot.vk import handler
 
+
+logging.root.removeHandler(absl.logging._absl_handler)
+absl.logging._warn_preinit_stderr = False
 logging.basicConfig(
     format='[%(filename)s:%(lineno)s - %(funcName)20s()]%(levelname)s:%(name)s:%(message)s',
     level=logging.INFO
@@ -13,11 +15,9 @@ logging.basicConfig(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Server options')
     parser.add_argument("--host", default=None, help="Host server")
-    parser.add_argument("--port", type=int, default=None, help="Port server (default: 8080)")
+    parser.add_argument("--port", type=int, default=5000, help="Port server (default: 5000)")
+    parser.add_argument("--cert-file", help="SSL certificate file (for HTTPS)")
+    parser.add_argument("--key-file", help="SSL key file (for HTTPS)")
     args = parser.parse_args()
 
-    # Ran bots
-    logging.info('Start vk-bot')
-    threading.Thread(target=handler.run).start()
-
-    run_app(port=args.port, host=args.host)
+    run_app(port=args.port, host=args.host, cert_file=args.cert_file, key_file=args.key_file)

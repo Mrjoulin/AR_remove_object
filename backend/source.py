@@ -6,7 +6,7 @@ import random
 import logging
 import numpy as np
 from PIL import Image
-from backend.generation_pattern.generate_pattern import get_generative_background
+from backend.masking.generate_pattern import get_generative_background
 
 
 def decode_input_image(image):
@@ -87,7 +87,7 @@ def save_background_image(img, objects, obj, number_object, bg_w, bg_h):
             top,
             bg_w + left,
             bg_h + top))
-        path = f'backend/background/background_{str(number_object)}.png'
+        path = f'backend/masking/imgs/background/background_{str(number_object)}.png'
         bg.save(path)
 
         return {'success': True, 'bg_path': path}
@@ -125,25 +125,23 @@ def get_image_masking(_img, objects, objects_class):
     return image_np
 
 
-def get_image_inpaint(_image, objects=None, masks=None, boxes=None, classes_to_render=None):
+def get_mask_objects(_image, objects=None, masks=None, boxes=None, classes_to_render=None):
     image = np.array(decode_input_image(_image))
 
     image_np_mark = image.copy()
-    mask_np = np.zeros(image_np_mark.shape[:2], np.uint8)
+    mask_np = np.zeros(image_np_mark.shape, np.uint8)
 
     if objects:
         for _object in objects:
-            for x in range(int(_object['x']), int(_object['x'] + _object['width'])):
-                for y in range(int(_object['y']), int(_object['y'] + _object['height'])):
-                    try:
-                        mask_np[y][x] = 255
-                    except IndexError:
-                        pass
+            mask_np[int(_object['y']):int(_object['y'] + _object['height']),
+                    int(_object['x']):int(_object['x'] + _object['width'])] = 255
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
-    image_np = cv2.inpaint(image, mask_np, 1, cv2.INPAINT_TELEA)
-    return image_np
+    # start_time = time.time()
+    # image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
+    # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
+    return mask_np
 
 
 def postprocess(frame, boxes, masks=None, draw=False, get_class_to_render=False, classes_to_render=None):
@@ -245,7 +243,7 @@ def drawBox(frame, classId, conf, left, top, right, bottom, classMask, maskThres
 
 
 def remove_all_generate_files():
-    pattern_path = 'backend/generation_pattern/pattern'
+    pattern_path = 'backend/masking/pattern'
     remove_pathes = [
         'backend/background/',
         'backend/out/1/',
@@ -263,10 +261,10 @@ def remove_all_generate_files():
 def test_crop():
     # testing crop image
     start_time = time.time()
-    img = Image.open('backend/test_img.jpg')
+    img = Image.open('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
     arr = np.array(img)
     objects, class_obj = test_objects()
-    get_image_masking(arr, objects, class_obj)
+    get_mask_objects(arr, objects=objects)
     logging.info("--- %s seconds ---" % (time.time() - start_time))
 
 

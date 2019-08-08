@@ -1,25 +1,23 @@
-import numpy as np
-import sys
 import os
-import tensorflow as tf
+import sys
 import cv2
 import time
 import base64
 import logging
-from distutils.version import StrictVersion
+import numpy as np
 from PIL import Image
+import tensorflow as tf
+from distutils.version import StrictVersion
+
 
 # Tensorflow object detection modules
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
 
-# Google Cloud Vision modules
-from google.cloud import vision
-
 # local modules
 from backend import source
-from backend.track_object import plane_tracker
-from server.routes import make_api_request, URL
+from backend.feature.track_object import plane_tracker
+from backend.inpaint.inpaint import Inpainting
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -63,8 +61,8 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, 30.0, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
+    PATH_TO_LABELS = './AR_remover/tensorflow-graph/fast_boxes/mscoco_label_map.pbtxt'
 
     net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
@@ -75,7 +73,7 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
     render = render_video_by_masking or render_image_by_masking
     inpaint = render_video_by_inpainting or render_image_by_inpainting
     # class_to_hide = []
-    procent_detecion = 0.4
+    procent_detecion = 0.5
     logging.info('Start rendering')
     while cap.isOpened():
         start_time = time.time()
@@ -100,7 +98,9 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
         net.setInput(blob)
 
         # Run the forward pass to get output from the output layers
-        boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
+        boxes_time = time.time()
+        boxes = net.forward()
+        logging.info('Boxes render in %s' % (time.time() - boxes_time))
 
         # out_mask = net.forward()
         # logging.info(str(out_mask))
@@ -112,9 +112,44 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
 
         # Extract the bounding box and mask for each of the detected objects
         if inpaint:
-            image_np = source.get_image_inpaint(image_np, masks=masks, boxes=boxes)
+            image_np = source.get_mask_objects(image_np, boxes=boxes)
+        else:
+            # logging.info('Find boxes %s' % boxes)
+            # classes_id = source.postprocess(image_np, boxes, get_class_to_render=True)
+            # logging.info('Find Classes Id : %s' % classes_id)
+            # image_np = source.postprocess(image_np, boxes, draw=True)
 
-        # image_np = postprocess(image_np, boxes, masks, draw=True)
+            rows, cols, channels = image_np.shape
+            classes = ["background", "person", "bicycle", "car", "motorcycle",
+                       "airplane", "bus", "train", "truck", "boat", "traffic light", "fire hydrant",
+                       "unknown", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse",
+                       "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "unknown", "backpack",
+                       "umbrella", "unknown", "unknown", "handbag", "tie", "suitcase", "frisbee", "skis",
+                       "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard",
+                       "surfboard", "tennis racket", "bottle", "unknown", "wine glass", "cup", "fork", "knife",
+                       "spoon", "bowl", "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog",
+                       "pizza", "donut", "cake", "chair", "couch", "potted plant", "bed", "unknown", "dining table",
+                       "unknown", "unknown", "toilet", "unknown", "tv", "laptop", "mouse", "remote", "keyboard",
+                       "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "unknown",
+                       "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"]
+            colors = np.random.uniform(0, 255, size=(len(classes), 3))
+
+            for detection in boxes[0,0,:,:]:
+                score = float(detection[2])
+                if score > procent_detecion:
+                    left = detection[3] * cols
+                    top = detection[4] * rows
+                    right = detection[5] * cols
+                    bottom = detection[6] * rows
+
+                    # draw a red rectangle around detected objects
+                    cv2.rectangle(image_np, (int(left), int(top)), (int(right), int(bottom)), (0, 0, 255), thickness=2)
+
+                    idx = int(detection[1])
+
+                    label = "{}: {:.2f}%".format(classes[idx], score * 100)
+                    y = top - 15 if top - 15 > 15 else top + 15
+                    cv2.putText(image_np, label, (int(left), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colors[idx], 2)
 
         cv2.imshow('object detection', cv2.resize(image_np, video_size))
 
@@ -132,7 +167,7 @@ def opencv_render(cap, video_size, use_server=False, render_image_by_masking=Fal
                 screens.sort()
                 number_screen = screens[-1].split('_')[1].split('.')[0]
                 logging.info('last number %s' % number_screen)
-                cv2.imwrite('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
+                cv2.imwrite('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
 
         cv2.setMouseCallback('object detection', get_screen)
 
@@ -177,8 +212,8 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
-    PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mscoco_label_map.pbtxt'
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
+    PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
 
     detection_graph = tf.Graph()
     with detection_graph.as_default():
@@ -190,19 +225,25 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
-    # Load the network
-    net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-
     render = render_video_by_masking or render_image_by_masking
-    inpaint = render_video_by_inpainting or render_image_by_inpainting
+    inpaint = True  # render_video_by_inpainting or render_image_by_inpainting
     # class_to_hide = []
     procent_detecion = 0.4
     render_frames = 0
+    sess_config = tf.ConfigProto()
+    sess_config.gpu_options.allow_growth = True
     logging.info('Start rendering')
     with detection_graph.as_default():
-        with tf.Session(graph=detection_graph) as sess:
+        with tf.Session(graph=detection_graph, config=sess_config) as sess:
+
+            # Load inpaint model
+            inpaint_session = Inpainting(session=sess)
+            output = inpaint_session.get_output(cv2.imread("server/imgs/inpaint.png"),
+                                                cv2.imread("server/imgs/mask_256.png"),
+                                                reuse=False)
+            inpaint_session.load_model()
+            inpaint_session.session.run(output)
+
             while cap.isOpened():
                 start_time = time.time()
                 ret, image_np = cap.read()
@@ -241,8 +282,6 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                     category_index,
                     use_normalized_coordinates=True,
                     line_thickness=8)
-
-
 
                 num_detections = int(out[0][0])
                 im_height, im_width = image_np.shape[:2]
@@ -290,18 +329,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                 if objects:
                     # get masking image
                     if render:
-                        if use_server:
-                            success, image = cv2.imencode('.png', initial_image)
-                            encoded_image = base64.b64encode(image.tobytes())
-                            response = make_api_request('get_masking_image', img=encoded_image.decode('utf-8'),
-                                                        objects=objects, class_objects=objects_class)
-                            try:
-                                image_np = np.array(source.decode_input_image(response['payload']['img']))
-                            except KeyError:
-                                raise KeyError(response['payload']['message'])
-                            logging.info('Get masking image')
-                        else:
-                            image_np = source.get_image_masking(initial_image, objects, objects_class)
+                        image_np = source.get_image_masking(initial_image, objects, objects_class)
 
                         # for class_img in class_img_to_hide:
                         #    class_to_hide.append(class_img)
@@ -309,19 +337,10 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                     # get inpainting image
                     if inpaint:
-                        if use_server:
-                            success, image = cv2.imencode('.png', initial_image)
-                            encoded_image = base64.b64encode(image.tobytes())
-                            logging.info(encoded_image.decode('utf-8'))
-                            response = make_api_request(URL, 'get_inpaint_image', img=encoded_image.decode('utf-8'),
-                                                        objects=objects)
-                            try:
-                                image_np = np.array(source.decode_input_image(response['payload']['img']))
-                            except KeyError:
-                                raise KeyError(response['payload']['message'])
-                            logging.info('Get inpaint image')
-                        else:
-                            image_np = source.get_image_inpaint(initial_image, objects)
+                        mask_np = source.get_mask_objects(initial_image, objects)
+                        output = inpaint_session.get_output(initial_image, mask_np, reuse=True)
+                        result = inpaint_session.session.run(output)
+                        image_np = result[0][:, :, ::-1]
 
                 if render_image_by_masking or render_image_by_inpainting:
                     path_to_save = 'AR_remover/imgs/render_' + ('masking' if render_image_by_masking else 'inpaint') + \
@@ -343,11 +362,12 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                 def get_screen(event, x, y, flags, param):
                     if event == cv2.EVENT_LBUTTONDBLCLK:
-                        screen = Image.fromarray(image_np)
                         screens = os.listdir('backend/out/screens')
                         screens.sort()
-                        number_screen = screens[-1][12:(13 if len(screens) < 10 else 14)]
-                        screen.save('backend/out/screens/screenshot_%s.png' % (int(number_screen) + 1))
+                        number_screen = screens[-1].split('_')[1].split('.')[0]
+                        logging.info('last number %s' % number_screen)
+                        cv2.imwrite('backend/masking/imgs/out/screens/screenshot_%s.png' % (int(number_screen) + 1),
+                                    image_np)
 
                 cv2.setMouseCallback('object detection', get_screen)
 

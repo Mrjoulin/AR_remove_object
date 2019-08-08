@@ -1,31 +1,41 @@
-import numpy as np
-import requests
-import logging
-import base64
-import cv2
-import json
 import os
+import cv2
+import ssl
+import json
 import uuid
 import time
+import base64
 import asyncio
+import logging
+import requests
+import numpy as np
 from aiohttp import web
-from av import VideoFrame
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import RTCPeerConnection, RTCSessionDescription
 
 # local modules
 from backend import source
-
+from server.frame_render import VideoTransformTrack, get_image
 
 URL = "http://127.0.0.1:5000/"
-# URL = "http://94.103.94.220:5000/"
+# URL = "http://84.201.133.73:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
 
 async def init(request):
-    logging.info('Run init page')
-    content = open(os.path.join(ROOT, "templates/index.html"), "r").read()
+    logging.info('Run init page from IP: %s' % request.remote)
+    content = open(os.path.join(ROOT, "templates/true_thanos_web/index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
+
+
+async def init_css(request):
+    content = open(os.path.join(ROOT, "templates/true_thanos_web/static/css/style.css"), "r").read()
+    return web.Response(content_type="text/css", text=content)
+
+
+async def init_js(request):
+    content = open(os.path.join(ROOT, "templates/thanosar/js/webRTC.js"), "r").read()
+    return web.Response(content_type="application/javascript", text=content)
 
 
 async def test_masking(request):
@@ -115,131 +125,19 @@ async def get_inpaint_image(request):
     return get_image(request_json, inpaint=True)
 
 
-def get_image(request_json, masking=False, inpaint=False):
-    if 'img' in request_json and isinstance(request_json['img'], str) and \
-            'objects' in request_json and isinstance(request_json['objects'], list):
-        img = request_json['img']
-        objects = request_json['objects']
-        if masking and 'class_objects' in request_json and isinstance(request_json['class_objects'], list) and \
-            len(request_json['objects']) == len(request_json['class_objects']):
-            class_objects = request_json['class_objects']
-    else:
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'Partial Content'}
-            ),
-        )
-
-    try:
-        if masking:
-            image_np = source.get_image_masking(img, objects, class_objects)
-        elif inpaint:
-            image_np = source.get_image_inpaint(img, objects)
-        else:
-            image_np = np.array(source.decode_input_image(img))
-
-        source.remove_all_generate_files()
-
-        success, image = cv2.imencode('.png', image_np)
-        encoded_image = base64.b64encode(image.tobytes())
-        logging.info("Return Generate Masking Image")
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'img': encoded_image.decode("utf-8")}
-            ),
-        )
-
-    except Exception as e:
-        logging.error(e)
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'Internal Server Error'}
-            ),
-        )
-
-
-def object_detection(img, box=False, mask=False):
-    if box or mask:
-        PATH_TO_FROZEN_GRAPH = "./AR_remover/objectdetection/tensorflow-graph/mask_rcnn/frozen_inference_graph.pb"
-        PATH_TO_LABELS = './AR_remover/objectdetection/tensorflow-graph/mask_rcnn/mscoco_label_map.pbtxt'
-
-        render_time = time.time()
-        net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-        blob = cv2.dnn.blobFromImage(img, swapRB=True, crop=False)
-        # Set the input to the network
-        net.setInput(blob)
-
-        logging.info('Start detection')
-        # Run the forward pass to get output from the output layers
-        if box and mask:
-            boxes, masks = net.forward(['detection_out_final', 'detection_masks'])
-            logging.info('Render image in %s' % (time.time() - render_time))
-            return boxes, masks
-        elif box:
-            boxes = net.forward(['detection_out_final'])
-            logging.info('Render image in %s' % (time.time() - render_time))
-            return boxes
-        else:
-            masks = net.forward(['detection_masks'])
-            logging.info('Render image in %s' % (time.time() - render_time))
-            return masks
-
-    return None
-
-
-class VideoTransformTrack(VideoStreamTrack):
-    def __init__(self, track, transform):
-        super().__init__()  # don't forget this!
-        self.track = track
-        self.transform = transform
-
-    async def recv(self):
-        start_time = time.time()
-        frame = await self.track.recv()
-        if self.transform == 'boxes' or self.transform == 'inpaint':
-            img = frame.to_ndarray(format="bgr24")
-
-            if self.transform == "inpaint":
-                logging.info('Inpaint image')
-
-                masks, boxes = object_detection(img, box=True, mask=True)
-
-                new_img = source.get_image_inpaint(img, masks=masks, boxes=boxes)
-            else:
-                logging.info('Go to draw boxes')
-
-                boxes = object_detection(img, box=True)
-
-                new_img = source.postprocess(frame=img, boxes=boxes, draw=True)
-
-            new_frame = VideoFrame.from_ndarray(new_img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            logging.info('Return frame in %s' % (time.time() - start_time))
-
-            return new_frame
-        elif self.transform == "edges":
-            # perform edge detection
-            img = frame.to_ndarray(format="bgr24")
-            img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
-
-            # rebuild a VideoFrame, preserving timing information
-            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            logging.info('Return frame in %s' % (start_time - time.time()))
-            return new_frame
-        else:
-            return frame
-
-
 async def offer(request):
-    logging.info('Request send' + str(request))
+    '''
+    :param request:
+    sdp, type: <string>, <string> - for WebRTC connection
+    video_transform: {
+                        name: <name_algorithm> - Options: "boxes", "inpaint", "edges", "cartoon" or empty "".
+                        src: [<additional variables>] - for "inpaint" -- [<number object>] (For example: [1])
+                                                        for others -- []
+    :return:
+        "boxes" - stream frames with visualized detected objects
+        "inpaint" = stream frames with remove selected object
+    '''
+
     params = await request.json()
     offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
@@ -264,7 +162,8 @@ async def offer(request):
 
     @pc.on("track")
     def on_track(track):
-        logging.info("Track %s received" % track.kind)
+        logging.info("Track {kind} received. Video transform: {transform}".format(kind=track.kind,
+                                                                                  transform=params["video_transform"]))
 
         local_video = VideoTransformTrack(track, transform=params["video_transform"])
         pc.addTrack(local_video)
@@ -275,8 +174,6 @@ async def offer(request):
     # send answer
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
-
-    logging.info('Return json')
 
     return web.Response(
         content_type="application/json",
@@ -306,13 +203,22 @@ async def on_shutdown(app):
     pcs.clear()
 
 
-def run_app(port=5000, host=None):
+def run_app(port=5000, host=None, cert_file=None, key_file=None):
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
+    app.router.add_get('/static/css/style.css', init_css)
+    # app.router.add_get('/js/webRTC.js', init_js)
     app.router.add_get('/test_masking', test_masking)
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_masking_image', get_masking_image)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)
-    web.run_app(app, access_log=None, port=port, ssl_context=None, host=host)
+
+    if cert_file is not None and key_file is not None:
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(cert_file, key_file)
+    else:
+        ssl_context = None
+
+    web.run_app(app, access_log=None, port=port, ssl_context=ssl_context, host=host)

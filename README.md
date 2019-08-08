@@ -81,11 +81,11 @@ python run.py --rendder_online
 ##### `     ~ "i"` - to impainting (press again to turn off)
 ##### `     ~ "q"` or Esc - to exit
 
-### 2.6 Options `--use_server` and `--tensorflow2`
-##### It is appropriate to use the power of our server to process the image and use the newer *Tensorflow* to process
+### 2.6 Option `--tensorflow2`
+##### It is appropriate to use the newer *Tensorflow* to process
 
 ## 3. API to get a render image
-These are requests to our server `94.103.94.220:5000` to receive the processed frame.
+These are requests to our server `xxx.xxx.xxx.xxx:5000` to receive the processed frame.
 ### 3.1 Init page `/`
 Start page with buttons for testing server response
 ### 3.2 Get masking image `/get_masking_image`
