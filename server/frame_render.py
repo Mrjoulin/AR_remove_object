@@ -89,13 +89,15 @@ def connect_to_tensorflow_graph():
     }
 
 
-def object_detection(tf_gpaph,  img, session=None, inpaint=False):
+def object_detection(tf_graph, img, session=None, inpaint=False):
     render_time = time.time()
-    detection_graph = tf_gpaph['detection_graph']
-    category_index = tf_gpaph['category_index']
+    detection_graph = tf_graph['detection_graph']
+    category_index = tf_graph['category_index']
 
     if session is None:
-        sess = tf.Session(graph=detection_graph)
+        sess_config = tf.ConfigProto()
+        sess_config.gpu_options.allow_growth = True
+        sess = tf.Session(graph=detection_graph, config=sess_config)
     else:
         sess = session
 
@@ -147,13 +149,11 @@ def object_detection(tf_gpaph,  img, session=None, inpaint=False):
     )
 
     logging.info('Render image in %s' % (time.time() - render_time))
-    if session is not None:
-        return {
-            'objects': objects,
-            'image': img
-        }
-    else:
-        return sess
+    return {
+        'session': sess,
+        'objects': objects,
+        'image': img
+    }
 
 
 class VideoTransformTrack(VideoStreamTrack):
@@ -165,15 +165,19 @@ class VideoTransformTrack(VideoStreamTrack):
             self.tf_graph = connect_to_tensorflow_graph()
             logging.info('Send test image and get session')
             img = cv2.imread('server/imgs/render_img.jpeg')
-            self.session = object_detection(self.tf_graph, img)
+            self.session = object_detection(self.tf_graph, img)['session']
 
             # Load inpaint model
-            self.inpaint_model = Inpainting(session=self.session)
-            output = self.inpaint_model.get_output(cv2.imread("server/imgs/inpaint.png"),
-                                                   cv2.imread("server/imgs/mask_256.png"),
-                                                   reuse=False)
-            self.inpaint_model.load_model()
-            self.inpaint_model.session.run(output)
+            if self.transform == 'inpaint':
+                self.inpaint_model = Inpainting(session=self.session)
+                video_size = (480, 640)
+                input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[0], video_size[1] * 2, 3))
+                output = self.inpaint_model.get_output(input_image_tf)
+                self.inpaint_model.load_model()
+                initial_image = np.expand_dims(cv2.imread("server/imgs/inpaint_480.png"), 0)
+                mask_np = np.expand_dims(cv2.imread("server/imgs/mask_480.png"), 0)
+                input_image = np.concatenate([initial_image, mask_np], axis=2)
+                self.inpaint_model.session.run(output, feed_dict={input_image_tf: input_image})
 
     async def recv(self):
         start_time = time.time()

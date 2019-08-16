@@ -125,11 +125,8 @@ def get_image_masking(_img, objects, objects_class):
     return image_np
 
 
-def get_mask_objects(_image, objects=None, masks=None, boxes=None, classes_to_render=None):
-    image = np.array(decode_input_image(_image))
-
-    image_np_mark = image.copy()
-    mask_np = np.zeros(image_np_mark.shape, np.uint8)
+def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_render=None):
+    mask_np = np.zeros(image.shape, np.uint8)
 
     if objects:
         for _object in objects:
@@ -141,6 +138,7 @@ def get_mask_objects(_image, objects=None, masks=None, boxes=None, classes_to_re
     # start_time = time.time()
     # image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
     # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
+    # mask_np = np.expand_dims(mask_np, axis=2)
     return mask_np
 
 

@@ -131,11 +131,11 @@ async def offer(request):
     sdp, type: <string>, <string> - for WebRTC connection
     video_transform: {
                         name: <name_algorithm> - Options: "boxes", "inpaint", "edges", "cartoon" or empty "".
-                        src: [<additional variables>] - for "inpaint" -- [<number object>] (For example: [1])
+                        src: [<additional variables>] - for "inpaint" -- [<class object>] (For example: ['people'])
                                                         for others -- []
     :return:
         "boxes" - stream frames with visualized detected objects
-        "inpaint" = stream frames with remove selected object
+        "inpaint" - stream frames with remove selected object
     '''
 
     params = await request.json()

@@ -12,7 +12,8 @@ from AR_remover.objectdetection import *
 logging.root.removeHandler(absl.logging._absl_handler)
 absl.logging._warn_preinit_stderr = False
 logging.basicConfig(
-    format='[%(filename)s:%(lineno)s - %(funcName)20s()]%(levelname)s:%(name)s:%(message)s',
+    format='[%(asctime)s: %(filename)s:%(lineno)s - %(funcName)10s()]%(levelname)s:%(name)s:%(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
     level=logging.INFO
 )
 
@@ -102,7 +103,8 @@ def image_render(image_path, render_masking=False, render_inpaint=False, use_ser
 
 def online_render(use_server=False, tf2=False, opencv=False):
     # Ran an online rendering
-    video_size = (800, 600)
+    logging.info('Ran online rendering')
+    video_size = (640, 480)
     cap = cv2.VideoCapture(0)
     if opencv:
         opencv_render(cap=cap, video_size=video_size, use_server=use_server)

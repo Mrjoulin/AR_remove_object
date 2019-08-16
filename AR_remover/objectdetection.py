@@ -17,7 +17,7 @@ from object_detection.utils import visualization_utils as vis_util
 # local modules
 from backend import source
 from backend.feature.track_object import plane_tracker
-from backend.inpaint.inpaint import Inpainting
+from backend.inpaint.inpaint import Inpainting, NewInpainting
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
 
@@ -215,6 +215,7 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
     PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
     PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
 
+    # Creating detection graph and config to Tensorflow Session
     detection_graph = tf.Graph()
     with detection_graph.as_default():
         od_graph_def = tf.GraphDef()
@@ -223,26 +224,44 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
             od_graph_def.ParseFromString(serialized_graph)
             tf.import_graph_def(od_graph_def, name='')
 
-    category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
-
-    render = render_video_by_masking or render_image_by_masking
-    inpaint = True  # render_video_by_inpainting or render_image_by_inpainting
-    # class_to_hide = []
-    procent_detecion = 0.4
-    render_frames = 0
     sess_config = tf.ConfigProto()
     sess_config.gpu_options.allow_growth = True
+
+    category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+
+    # Local variables
+    render = render_video_by_masking or render_image_by_masking
+    inpaint = True  # render_video_by_inpainting or render_image_by_inpainting
+    procent_detecion = 0.4
+    render_frames = 0
     logging.info('Start rendering')
     with detection_graph.as_default():
         with tf.Session(graph=detection_graph, config=sess_config) as sess:
-
             # Load inpaint model
             inpaint_session = Inpainting(session=sess)
-            output = inpaint_session.get_output(cv2.imread("server/imgs/inpaint.png"),
-                                                cv2.imread("server/imgs/mask_256.png"),
-                                                reuse=False)
+            logging.info('Video shape: %s' % str(video_size))
+            input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[1], video_size[0] * 2, 3))
+            output = inpaint_session.get_output(input_image_tf)
             inpaint_session.load_model()
-            inpaint_session.session.run(output)
+            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_480.png"), 0)
+            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_480.png"), 0)
+            test_input_image = np.concatenate([test_image, test_mask], axis=2)
+            inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
+
+            # Load new inpaint model
+            # inpaint_session = NewInpainting(session=sess)
+            # image = cv2.imread("server/imgs/inpaint_480.png")
+            # mask = cv2.imread("server/imgs/mask_480.png", 0).astype(np.float32)
+            # mask = np.expand_dims(mask, axis=2) / 255
+            # input_image_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 3])
+            # input_mask_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 1])
+            # output = inpaint_session.get_output(input_image_tf, input_mask_tf, reuse=False)
+            # inpaint_session.load_model()
+            # image = image * (1 - mask) + 255 * mask
+            # image = np.expand_dims(image, 0)
+            # mask = np.expand_dims(mask, 0)
+            # result = inpaint_session.session.run(output, feed_dict={input_image_tf: image, input_mask_tf: mask})
+            # cv2.imwrite('server/imgs/output_480.png', result[0][:, :, ::-1])
 
             while cap.isOpened():
                 start_time = time.time()
@@ -314,17 +333,6 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                         objects_class.append(class_id)
 
-                        # if class_id in class_to_hide:
-                        #     image = Image.fromarray(image_np)
-                        #     backgrond = Image.open(f'backend/out/1/out_{str(class_id)}.jpg')
-                        #     left = round(im_width * box[1]) - 5
-                        #     top = round(im_height * box[0]) - 14
-                        #     resize_width = round(im_width * (box[3] - box[1])) + 10
-                        #     resize_height = round(im_height * (box[2] - box[0])) + 28
-                        #     normal_bg = backgrond.resize((resize_width, resize_height), Image.ANTIALIAS)
-                        #     image.paste(normal_bg, (left, top))
-                        #     image_np = np.array(image)
-
                 # if Tensorflow find objects
                 if objects:
                     # get masking image
@@ -337,10 +345,17 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                     # get inpainting image
                     if inpaint:
+                        # Get mask objects
                         mask_np = source.get_mask_objects(initial_image, objects)
-                        output = inpaint_session.get_output(initial_image, mask_np, reuse=True)
-                        result = inpaint_session.session.run(output)
+                        # Inpainting Image
+                        frame_time = time.time()
+                        # initial_image = initial_image * (1 - mask_np) + 255 * mask_np
+                        initial_image = np.expand_dims(initial_image, 0)
+                        mask_np = np.expand_dims(mask_np, 0)
+                        input_image = np.concatenate([initial_image, mask_np], axis=2)
+                        result = inpaint_session.session.run(output, feed_dict={input_image_tf: input_image})
                         image_np = result[0][:, :, ::-1]
+                        logging.info('Frame time: %s sec' % (time.time() - frame_time))
 
                 if render_image_by_masking or render_image_by_inpainting:
                     path_to_save = 'AR_remover/imgs/render_' + ('masking' if render_image_by_masking else 'inpaint') + \
@@ -371,6 +386,8 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
 
                 cv2.setMouseCallback('object detection', get_screen)
 
+                logging.info("--- %s seconds ---" % (time.time() - start_time))
+
                 if cv2.waitKey(10) & 0xFF == ord(' '):
                     render = not render
                     logging.info('Start masking object' if render else 'Clear mask')
@@ -393,7 +410,6 @@ def tensorflow_render(cap, video_size, use_server=False, render_image_by_masking
                     cv2.destroyAllWindows()
                     break
 
-                logging.info("--- %s seconds ---" % (time.time() - start_time))
                 if render_video_by_inpainting or render_video_by_masking:
                     render_frames += 1
                     logging.info("Rendering %s seconds video" % (render_frames / frame_per_second))

@@ -424,7 +424,6 @@ def compute_color(u,v):
     return img
 
 
-
 def flow_to_image(flow):
     """Transfer flow map to image.
     Part of code forked from flownet.
