@@ -38,13 +38,6 @@ async def init_js(request):
     return web.Response(content_type="application/javascript", text=content)
 
 
-async def test_masking(request):
-    test_json = json.loads(open('backend/test.json', 'r').read())
-    imgs = make_api_request(url_server=URL, method_name='get_masking_image', img=test_json['img'],
-                            objects=test_json['objects'], class_objects=test_json['class_objects'])
-    return web.Response(text=str(imgs))
-
-
 async def test_inpaint(requset):
     test_json = json.loads(open('backend/test.json', 'r').read())
     imgs = make_api_request(url_server=URL, method_name='get_inpaint_image',
@@ -52,46 +45,6 @@ async def test_inpaint(requset):
     response = await imgs.json()
     logging.info('Return respose')
     return web.Response(text=str(response))
-
-
-async def get_masking_image(request):
-
-    # ------------- GET MASKING IMAGE -------------
-    # input json:
-    # {
-    #   "img": <BASE64-encoded img>,
-    #   "objects": [ {"x": <x>, "y": <y>, "width": <width>, "height": <height>}, ...]
-    #   "class_objects": [<number_class>, ...]
-    # }
-    #
-    # output json:
-    # {
-    #   "payload": {
-    #       "img": <BASE64-encoded masking image>
-    # }
-    # }
-    try:
-        request_json = await request.json()
-        logging.info('Json received')
-    except:
-        logging.error('BAD REQUEST JSON')
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'No Content'}
-            ),
-        )
-
-    return get_image(request_json, masking=True)
-
-    # patterns = {}
-    # for class_object in class_objects:
-    #    try:
-    #        with open('backend/out/1/out_%s.jpg' % str(class_object), 'rb') as image_file:
-    #            encoded_string = base64.b64encode(image_file.read())
-    #            patterns[str(class_object)] = encoded_string.decode("utf-8")
-    #    except FileNotFoundError:
-    #        return make_api_response({'message': 'Internal Server Error'}, code=500)
 
 
 async def get_inpaint_image(request):
@@ -209,9 +162,7 @@ def run_app(port=5000, host=None, cert_file=None, key_file=None):
     app.router.add_get('/', init)
     app.router.add_get('/static/css/style.css', init_css)
     # app.router.add_get('/js/webRTC.js', init_js)
-    app.router.add_get('/test_masking', test_masking)
     app.router.add_get('/test_inpaint', test_inpaint)
-    app.router.add_post('/get_masking_image', get_masking_image)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)
 

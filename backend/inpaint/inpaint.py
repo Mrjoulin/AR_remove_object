@@ -33,7 +33,7 @@ class Inpainting:
 
     def load_model(self):
         load_model_time = time.time()
-        logging.info('Using inpaint maodel: %s' % INPAINT_MODEL_DIR)
+        logging.info('Using inpaint model: %s' % INPAINT_MODEL_DIR)
         vars_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         assign_ops = []
         for var in vars_list:

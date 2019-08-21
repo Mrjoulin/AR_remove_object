@@ -6,7 +6,6 @@ import random
 import logging
 import numpy as np
 from PIL import Image
-from backend.masking.generate_pattern import get_generative_background
 
 
 def decode_input_image(image):
@@ -15,123 +14,20 @@ def decode_input_image(image):
         path = 'backend/object.jpg'
         with open(path, 'wb') as write_file:
             write_file.write(decode_img)
-        img = Image.open(path)
+        image = cv2.imread(path)
         os.remove(path)
     except:
-        img = Image.fromarray(image)
-    return img
-
-
-def get_background_coordinates(img, bg_w, bg_h, current_obj, objects):
-    flag = True
-    if current_obj['y'] >= bg_h:
-        for obj in objects:
-            if obj['x'] + obj['width'] > current_obj['x'] or obj['x'] < current_obj['x'] + current_obj['width']:
-                if obj['y'] + obj['height'] < current_obj['y']:
-                    if current_obj['y'] - obj['y'] - obj['height'] < bg_h:
-                        flag = False
-                elif obj['y'] < current_obj['y']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] - bg_h
-            return left, top
-    flag = True
-    if img.width - current_obj['x'] - current_obj['width'] >= bg_w:
-        for obj in objects:
-            if obj['y'] + obj['height'] > current_obj['y'] or obj['y'] < current_obj['y'] + current_obj['height']:
-                if obj['x'] > current_obj['x'] + current_obj['width']:
-                    if obj['x'] - current_obj['x'] - current_obj['width'] < bg_w:
-                        flag = False
-                elif obj['x'] + obj['width'] > current_obj['x'] + current_obj['width']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] + current_obj['width']
-            top = current_obj['y']
-            return left, top
-    flag = True
-    if img.height - current_obj['y'] - current_obj['height'] >= bg_h:
-        for obj in objects:
-            if obj['x'] + obj['width'] > current_obj['x'] or obj['x'] < current_obj['x'] + current_obj['width']:
-                if obj['y'] > current_obj['y'] + current_obj['height']:
-                    if obj['y'] - current_obj['y'] - current_obj['height'] < bg_h:
-                        flag = False
-                elif obj['y'] + obj['height'] > current_obj['y'] + current_obj['height']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] + current_obj['height']
-            return left, top
-    flag = True
-    if current_obj['x'] >= bg_w:
-        for obj in objects:
-            if obj['y'] + obj['height'] > current_obj['y'] or obj['y'] < current_obj['y'] + current_obj['height']:
-                if obj['x'] + obj['width'] < current_obj['x']:
-                    if current_obj['x'] - obj['x'] - obj['width'] < bg_w:
-                        flag = False
-                elif obj['x'] < current_obj['x']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] - bg_w
-            top = current_obj['y']
-            return left, top
-    return -1, -1
-
-
-def save_background_image(img, objects, obj, number_object, bg_w, bg_h):
-    left, top = get_background_coordinates(img, bg_w, bg_h, obj, objects)
-    logging.info('image size: ' + str(img.size) + ' background coordinates: ' + str(left) + ' ' + str(top))
-    if left != -1:
-        bg = img.crop((
-            left,
-            top,
-            bg_w + left,
-            bg_h + top))
-        path = f'backend/masking/imgs/background/background_{str(number_object)}.png'
-        bg.save(path)
-
-        return {'success': True, 'bg_path': path}
-    else:
-        return {'success': False}
-
-
-def get_image_masking(_img, objects, objects_class):
-    # test_json = open('test.json', 'r').read()
-    # _img, objects = parse_input_json(test_json)
-    img = decode_input_image(_img)
-
-    number_object = 0
-    for current_object, object_class in zip(objects, objects_class):
-        object_width = int(current_object['width'])
-        object_height = int(current_object['height'])
-        logging.info('object: height: {height} width: {width} class: {object_class}'.format(
-            height=str(object_height), width=str(object_width), object_class=str(object_class)))
-
-        # Crop background is 20 % of size object
-        background_width = round(object_width * 0.25)
-        background_height = round(object_height * 0.25)
-
-        logging.info('background size: ' + str(background_width) + ' ' + str(background_height))
-
-        request = save_background_image(img, objects, current_object,number_object, background_width, background_height)
-        if request['success']:
-            get_generative_background(request['bg_path'], object_width, object_height, object_class)
-
-            backgrond = Image.open(f'backend/out/1/out_{str(object_class)}.jpg')
-            img.paste(backgrond, (current_object['x'], current_object['y']))
-            number_object += 1
-
-    image_np = np.array(img)
-    return image_np
+        pass
+    return image
 
 
 def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_render=None):
     mask_np = np.zeros(image.shape, np.uint8)
 
     if objects:
-        for _object in objects:
-            mask_np[int(_object['y']):int(_object['y'] + _object['height']),
-                    int(_object['x']):int(_object['x'] + _object['width'])] = 255
+        for obj in objects:
+            mask_np[int(obj['y']):int(obj['y'] + obj['height']),
+                    int(obj['x']):int(obj['x'] + obj['width'])] = 255
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
@@ -238,32 +134,6 @@ def drawBox(frame, classId, conf, left, top, right, bottom, classMask, maskThres
         cv2.drawContours(frame[top:bottom + 1, left:right + 1], contours, -1, color, 3, cv2.LINE_8, hierarchy, 100)
 
     return frame
-
-
-def remove_all_generate_files():
-    pattern_path = 'backend/masking/pattern'
-    remove_pathes = [
-        'backend/background/',
-        'backend/out/1/',
-    ]
-
-    for path in remove_pathes:
-        for img in os.listdir(path):
-            os.remove(path + img)
-
-    for form in ['.jpg', '.png']:
-        if os.path.exists(pattern_path + form):
-            os.remove(pattern_path + form)
-
-
-def test_crop():
-    # testing crop image
-    start_time = time.time()
-    img = Image.open('server/vk_bot/render_imgs/to_render_img_456243552.jpg')
-    arr = np.array(img)
-    objects, class_obj = test_objects()
-    get_mask_objects(arr, objects=objects)
-    logging.info("--- %s seconds ---" % (time.time() - start_time))
 
 
 def test_objects():
