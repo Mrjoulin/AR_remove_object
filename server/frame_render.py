@@ -1,8 +1,10 @@
+import os
 import cv2
 import time
 import json
 import base64
 import logging
+import subprocess
 import numpy as np
 from aiohttp import web
 from av import VideoFrame
@@ -17,13 +19,19 @@ from object_detection.utils import visualization_utils as vis_util
 from backend import source
 from backend.inpaint.inpaint import Inpainting
 
+os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
+            "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
+            stdout=subprocess.PIPE).stdout.readlines()]))
+frames_time = []
+
 
 class VideoTransformTrack(VideoStreamTrack):
     def __init__(self, track, transform):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
-        if self.transform:
+        self.first_frame = True
+        if self.transform == 'boxes' or self.transform == 'inpaint':
             self.tf_graph = self.connect_to_tensorflow_graph()
             logging.info('Get session and send test image')
 
@@ -35,13 +43,13 @@ class VideoTransformTrack(VideoStreamTrack):
                 # Load inpaint model
                 if self.transform == 'inpaint':
                     self.inpaint_model = Inpainting(session=self.session)
-                    video_size = (480, 640)
+                    video_size = (240, 320)
                     self.input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[0], video_size[1]*2, 3))
                     self.output = self.inpaint_model.get_output(self.input_image_tf)
                     self.inpaint_model.load_model()
                     # Test run algorithm (to overclock model)
-                    test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_480.png"), 0)
-                    test_mask = np.expand_dims(cv2.imread("server/imgs/mask_480.png"), 0)
+                    test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_%s.png" % video_size[0]), 0)
+                    test_mask = np.expand_dims(cv2.imread("server/imgs/mask_%s.png" % video_size[0]), 0)
                     input_image = np.concatenate([test_image, test_mask], axis=2)
                     self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
 
@@ -53,11 +61,13 @@ class VideoTransformTrack(VideoStreamTrack):
         start_time = time.time()
         frame = await self.track.recv()
 
-        if self.transform:
+        if self.transform and not self.first_frame:
             img = frame.to_ndarray(format="bgr24")
 
             if self.transform == 'boxes' or self.transform == 'inpaint':
                 # Detection objects in frame
+                init_img = img.copy()
+                img = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
                 response = self.object_detection(img, draw_box=self.transform != 'inpaint')
                 img = response['image']
                 objects = response['objects']
@@ -68,13 +78,13 @@ class VideoTransformTrack(VideoStreamTrack):
                     # Get mask objects
                     mask = source.get_mask_objects(img, objects=objects)
                     # Inpaint image
-                    img = img * (255 - mask) + mask
+                    img = img * (1 - mask) + 255 * mask
                     img = np.expand_dims(img, 0)
-                    mask = np.expand_dims(mask, 0)
-                    input_image = np.concatenate([img, mask], axis=2)
+                    input_mask = np.expand_dims(255 * mask, 0)
+                    input_image = np.concatenate([img, input_mask], axis=2)
                     result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
-                    img = result[0][:, :, ::-1]
-                    logging.info('Frame time: %s sec' % (time.time() - frame_time))
+                    img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
+                    logging.info('Frame time: %.5f sec' % (time.time() - frame_time))
 
             elif self.transform == "edges":
                 # perform edge detection
@@ -97,16 +107,23 @@ class VideoTransformTrack(VideoStreamTrack):
                 img = cv2.bitwise_and(img_color, img_edges)
 
             # rebuild a VideoFrame, preserving timing information
-            frame = VideoFrame.from_ndarray(img, format="bgr24")
-            frame.pts = frame.pts
-            frame.time_base = frame.time_base
+            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            render_time = (time.time() - start_time)
+            frames_time.append(render_time)
+            logging.info('Return frame in %.5f sec' % render_time)
+            return new_frame
 
-        logging.info('Return frame in %s' % (time.time() - start_time))
+        self.first_frame = False
+        logging.info('Return frame in %.5f sec' % (time.time() - start_time))
         return frame
 
     def connect_to_tensorflow_graph(self):
-        PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph.pb"
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
         PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
+
+        logging.info('Using Tensorflow Detection Graph and labels:\n%s\n%s' % (PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS))
 
         render_time = time.time()
         # net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
@@ -122,7 +139,7 @@ class VideoTransformTrack(VideoStreamTrack):
 
         category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
-        logging.info('Connecting Tensorflow model in %s sec' % (time.time() - render_time))
+        logging.info('Connecting Tensorflow model in %.5f sec' % (time.time() - render_time))
         return {
             'detection_graph': detection_graph,
             'category_index': category_index
@@ -134,7 +151,6 @@ class VideoTransformTrack(VideoStreamTrack):
         category_index = self.tf_graph['category_index']
 
         with detection_graph.as_default():
-            logging.info('Start object detecting on image')
             # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
             image_np_expanded = np.expand_dims(img, axis=0)
             image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
@@ -177,15 +193,20 @@ class VideoTransformTrack(VideoStreamTrack):
                     objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
 
             logging.info(
-                str([category_index.get(value) for index, value in enumerate(out[3][0])
-                     if out[1][0, index] > percent_detection])
+                'Number detected objects: ' +
+                str(len([category_index.get(value) for index, value in enumerate(out[3][0])
+                         if out[1][0, index] > percent_detection]))
             )
 
-            logging.info('Render image in %s' % (time.time() - render_time))
+            logging.info('Detection object in frame: %.5f sec' % (time.time() - render_time))
             return {
                 'objects': objects,
                 'image': img
             }
+
+
+def get_average_time_render():
+    return sum(frames_time) / (len(frames_time) if frames_time else 1)
 
 
 def get_image(request_json, masking=False, inpaint=False):

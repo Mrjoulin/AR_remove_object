@@ -4,6 +4,7 @@ import cv2
 import time
 import base64
 import logging
+import subprocess
 import numpy as np
 from PIL import Image
 import tensorflow as tf
@@ -20,7 +21,9 @@ from backend.feature.track_object import plane_tracker
 from backend.inpaint.inpaint import Inpainting, NewInpainting
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
-
+os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
+            "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
+            stdout=subprocess.PIPE).stdout.readlines()]))
 
 if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
     raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
@@ -34,7 +37,7 @@ def camera(video_path=0):
         ret, image_np = cap.read()
         if ret:
             cnt += 1
-            cv2.imshow('object detection', cv2.resize(image_np, (800, 600)))
+            cv2.imshow('object detection', image_np)
         else:
             cap.release()
             cv2.destroyAllWindows()
@@ -56,7 +59,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
+    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
     PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
 
     # Creating detection graph and config to Tensorflow Session
@@ -75,6 +78,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
 
     # Local variables
     inpaint = True  # render_video or render_image
+    small_size = (video_size[0] // 2, video_size[1] // 2)
     procent_detecion = 0.4
     render_frames = 0
     logging.info('Start rendering')
@@ -83,11 +87,11 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
             # Load inpaint model
             inpaint_session = Inpainting(session=sess)
             logging.info(f'Video shape: {str(video_size)}')
-            input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[1], video_size[0] * 2, 3))
+            input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
             output = inpaint_session.get_output(input_image_tf)
             inpaint_session.load_model()
-            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_480.png"), 0)
-            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_480.png"), 0)
+            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_240.png"), 0)
+            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_240.png"), 0)
             test_input_image = np.concatenate([test_image, test_mask], axis=2)
             inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
 
@@ -111,6 +115,8 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 ret, image_np = cap.read()
                 if ret:
                     initial_image = image_np.copy()
+                    image_np = cv2.resize(image_np, small_size)
+                    logging.info(f'Render image shape: {str(image_np.shape)}')
                 else:
                     cap.release()
                     if render_video:
@@ -133,14 +139,15 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                     [num_detections, scores, boxes, classes],
                     feed_dict={image_tensor: image_np_expanded})
                 # Visualization of the results of a detection.
-                vis_util.visualize_boxes_and_labels_on_image_array(
-                    image_np,
-                    np.squeeze(out[2][0]),
-                    np.squeeze(out[3][0]).astype(np.int32),
-                    np.squeeze(out[1][0]),
-                    category_index,
-                    use_normalized_coordinates=True,
-                    line_thickness=8)
+                if not inpaint:
+                    vis_util.visualize_boxes_and_labels_on_image_array(
+                        image_np,
+                        np.squeeze(out[2][0]),
+                        np.squeeze(out[3][0]).astype(np.int32),
+                        np.squeeze(out[1][0]),
+                        category_index,
+                        use_normalized_coordinates=True,
+                        line_thickness=8)
 
                 num_detections = int(out[0][0])
                 im_height, im_width = image_np.shape[:2]
@@ -167,21 +174,22 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 logging.info(
                     str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.4])
                 )
+                logging.info('Detection objects in %s sec' % (time.time() - start_time))
 
                 # if Tensorflow find objects
                 if objects:
                     # get inpainting image
                     if inpaint:
                         # Get mask objects
-                        mask_np = source.get_mask_objects(initial_image, objects)
+                        mask_np = source.get_mask_objects(image_np, objects)
                         # Inpainting Image
                         frame_time = time.time()
-                        initial_image = initial_image * (255 - mask_np) + mask_np
-                        initial_image = np.expand_dims(initial_image, 0)
-                        mask_np = np.expand_dims(mask_np, 0)
-                        input_image = np.concatenate([initial_image, mask_np], axis=2)
+                        image_np = image_np * (1 - mask_np) + 255 * mask_np
+                        image_np = np.expand_dims(image_np, 0)
+                        input_mask = np.expand_dims(255 * mask_np, 0)
+                        input_image = np.concatenate([image_np, input_mask], axis=2)
                         result = inpaint_session.session.run(output, feed_dict={input_image_tf: input_image})
-                        image_np = result[0][:, :, ::-1]
+                        image_np = source.merge_inpaint_image_to_initial(initial_image, mask_np, result[0][:, :, ::-1])
                         logging.info('Frame time: %s sec' % (time.time() - frame_time))
 
                 if render_image:
@@ -202,7 +210,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         screens = os.listdir('backend/screens')
                         screens.sort()
                         number_screen = screens[-1].split('_')[1].split('.')[0]
-                        logging.info('last number %s' % number_screen)
+                        logging.info('\n\n    Save screen with number %s\n' % number_screen)
                         cv2.imwrite('backend/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
 
                 cv2.setMouseCallback('object detection', get_screen)

@@ -27,7 +27,7 @@ def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_ren
     if objects:
         for obj in objects:
             mask_np[int(obj['y']):int(obj['y'] + obj['height']),
-                    int(obj['x']):int(obj['x'] + obj['width'])] = 255
+                    int(obj['x']):int(obj['x'] + obj['width'])] = 1
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
@@ -36,6 +36,14 @@ def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_ren
     # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
     # mask_np = np.expand_dims(mask_np, axis=2)
     return mask_np
+
+
+def merge_inpaint_image_to_initial(initial_image, inpaint_mask, inpaint_image):
+    initial_size = (initial_image.shape[1], initial_image.shape[0])
+    inpaint_objects = cv2.resize(inpaint_image * inpaint_mask, initial_size)
+    big_mask = cv2.resize((1 - inpaint_mask), initial_size)
+    image_np = initial_image * big_mask
+    return image_np + inpaint_objects
 
 
 def postprocess(frame, boxes, masks=None, draw=False, get_class_to_render=False, classes_to_render=None):

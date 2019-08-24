@@ -105,7 +105,7 @@ POST request, to obtain an image with an algorithm applied to it `--inpaint` (se
 ### 3.3 WebRTC connection `/offer`
 POST request to WebRTC connection with server. Rendering a stream video
 #### Input json:
-```json
+```
     {
       "sdp": <string>, 
       "type": <string>, # - for WebRTC connection
@@ -117,7 +117,7 @@ POST request to WebRTC connection with server. Rendering a stream video
     }
 ```
 #### Output json:
-```json
+```
     {
       "sdp": <string>,
       "type": <string> # - for webRTC connection

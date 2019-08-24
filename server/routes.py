@@ -14,7 +14,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 
 # local modules
 from backend import source
-from server.frame_render import VideoTransformTrack, get_image
+from server.frame_render import *
 
 URL = "http://127.0.0.1:5000/"
 # URL = "http://84.201.133.73:5000/"
@@ -151,6 +151,7 @@ def make_api_request(url_server, method_name, **kwargs):
 
 async def on_shutdown(app):
     # close peer connections
+    logging.info('Average time of one frame: %.5f sec' % get_average_time_render())
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()
