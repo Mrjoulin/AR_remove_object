@@ -178,19 +178,14 @@ class VideoTransformTrack(VideoStreamTrack):
                     line_thickness=8)
 
             num_detections = int(out[0][0])
-            im_height, im_width = img.shape[:2]
-            percent_detection = 0.4
+            percent_detection = 0.5
             objects = []
             for i in range(num_detections):
                 if out[1][0, i] > percent_detection:
                     position = out[2][0][i]
-                    (xmin, xmax, ymin, ymax) = (
-                        position[1] * im_width, position[3] * im_width, position[0] * im_height,
-                        position[2] * im_height)
+                    (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
-                    width_object = xmax - xmin
-                    height_object = ymax - ymin
-                    objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
+                    objects.append({'x_min': xmin, 'y_min': ymin, 'x_max': xmax, 'y_max': ymax})
 
             logging.info(
                 'Number detected objects: ' +

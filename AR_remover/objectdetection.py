@@ -79,7 +79,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
     # Local variables
     inpaint = True  # render_video or render_image
     small_size = (video_size[0] // 2, video_size[1] // 2)
-    procent_detecion = 0.4
+    procent_detecion = 0.5
     render_frames = 0
     logging.info('Start rendering')
     with detection_graph.as_default():
@@ -156,13 +156,9 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 for i in range(num_detections):
                     if out[1][0, i] > procent_detecion:
                         position = out[2][0][i]
-                        (xmin, xmax, ymin, ymax) = (
-                            position[1] * im_width, position[3] * im_width, position[0] * im_height,
-                            position[2] * im_height)
+                        (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
-                        width_object = xmax - xmin
-                        height_object = ymax - ymin
-                        objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
+                        objects.append({'x_min': xmin, 'y_min': ymin, 'x_max': xmax, 'y_max': ymax})
 
                         class_id = int(out[3][0][i])
                         score = float(out[1][0][i])
