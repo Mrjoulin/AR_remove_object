@@ -1,5 +1,8 @@
 requests
 numpy
+pyyaml
+setuptools
+easydict
 opencv-python
 Pillow
 scikit-learn
@@ -7,4 +10,4 @@ scikit-image
 aiohttp
 aiortc
 tensorflow-gpu
-git+https://github.com/JiahuiYu/neuralgym
+object_detection
