@@ -1,4 +1,4 @@
-# AR_remove_object
+&# AR_remove_object
 
 Have you ever wanted to remove disturbing objects from photos / videos or even online? 
 
@@ -122,4 +122,17 @@ POST request to WebRTC connection with server. Rendering a stream video
       "sdp": <string>,
       "type": <string> # - for webRTC connection
     }
+```
+
+
+
+### Docker
+#### build
+```shell script
+docker build . -t thanosar
+```
+
+#### run
+```shell script
+docker run -it -p 5000:5000 thanosar
 ```
