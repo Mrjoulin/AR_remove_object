@@ -168,7 +168,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         # objects_class.append(class_id)
                 # Visualize detected bounding boxes.
                 logging.info(
-                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.4])
+                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
                 )
                 logging.info('Detection objects in %s sec' % (time.time() - start_time))
 
@@ -229,5 +229,3 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 if render_video:
                     render_frames += 1
                     logging.info("Rendering %s seconds video" % (render_frames / frame_per_second))
-
-    source.remove_all_generate_files()
