@@ -21,7 +21,6 @@ NEWINPAINT_MODEL_DIR = os.path.join(ROOT, 'models/paris-streetview_256x256_rect'
 
 class Inpainting:
     def __init__(self, session=None):
-        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
         # ng.get_gpus(1)
         self.model = InpaintCAModel()
         if session is None:
@@ -42,7 +41,7 @@ class Inpainting:
             var_value = tf.contrib.framework.load_variable(INPAINT_MODEL_DIR, from_name)
             assign_ops.append(tf.assign(var, var_value))
         self.session.run(assign_ops)
-        logging.info('Model loaded for %s sec' % (time.time() - load_model_time))
+        logging.info('Model loaded for %.5f sec' % (time.time() - load_model_time))
 
         return None
 
@@ -52,7 +51,7 @@ class Inpainting:
         output = (output + 1.) * 127.5
         output = tf.reverse(output, [-1])
         output = tf.saturate_cast(output, tf.uint8)
-        logging.info('Preload time: %s sec' % (time.time() - preload_time))
+        logging.info('Preload time: %.5f sec' % (time.time() - preload_time))
 
         return output
 
@@ -128,7 +127,7 @@ if __name__ == '__main__':
     mask = np.expand_dims(mask / 255, 0)
     result = inpaint_session.session.run(output, feed_dict={input_image_tf: image, input_mask_tf: mask})
     cv2.imwrite(args.output, result[0][:, :, ::-1])
-    print('---- Frame time %s sec ----' % (time.time() - frame_time))
+    print('---- Frame time %.5f sec ----' % (time.time() - frame_time))
     # response = model.get_output(cv2.imread("server/imgs/inpaint_480.png"), cv2.imread("server/imgs/mask_480.png"),
     #                            reuse=tf.AUTO_REUSE)
     # frame_time = time.time()

@@ -23,19 +23,24 @@ def decode_input_image(image):
 
 def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_render=None):
     mask_np = np.zeros(image.shape, np.uint8)
+    h, w = image.shape[:2]
 
     if objects:
         for obj in objects:
-            mask_np[int(obj['y']):int(obj['y'] + obj['height']),
-                    int(obj['x']):int(obj['x'] + obj['width'])] = 255
+            mask_np[int(obj['position']['y_min'] * h):int(obj['position']['y_max'] * h),
+                    int(obj['position']['x_min'] * w):int(obj['position']['x_max'] * w)] = 1
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
-    # start_time = time.time()
-    # image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
-    # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
-    # mask_np = np.expand_dims(mask_np, axis=2)
     return mask_np
+
+
+def merge_inpaint_image_to_initial(initial_image, inpaint_mask, inpaint_image):
+    initial_size = (initial_image.shape[1], initial_image.shape[0])
+    big_mask = cv2.resize(inpaint_mask, initial_size)
+    inpaint_objects = cv2.resize(inpaint_image, initial_size) * big_mask
+    image_np = initial_image * (1 - big_mask)
+    return image_np + inpaint_objects
 
 
 def postprocess(frame, boxes, masks=None, draw=False, get_class_to_render=False, classes_to_render=None):

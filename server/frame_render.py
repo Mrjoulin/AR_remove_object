@@ -1,8 +1,10 @@
+import os
 import cv2
 import time
 import json
 import base64
 import logging
+import subprocess
 import numpy as np
 from aiohttp import web
 from av import VideoFrame
@@ -17,64 +19,86 @@ from object_detection.utils import visualization_utils as vis_util
 from backend import source
 from backend.inpaint.inpaint import Inpainting
 
+try:
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
+                "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
+                stdout=subprocess.PIPE).stdout.readlines()]))
+except ValueError:
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+frames_time = []
+
 
 class VideoTransformTrack(VideoStreamTrack):
     def __init__(self, track, transform):
         super().__init__()  # don't forget this!
         self.track = track
-        self.transform = transform
-        if self.transform:
-            self.tf_graph = self.connect_to_tensorflow_graph()
-            logging.info('Get session and send test image')
+        self.transform = transform['name']
+        self.objects = []
+        # "all" - to remove all detected objects
+        self.objects_to_remove = transform['src'] if self.transform == 'inpaint' else ["all"]
+        self.first_frame = True
 
-            with self.tf_graph['detection_graph'].as_default():
-                sess_config = tf.ConfigProto()
-                sess_config.gpu_options.allow_growth = True
-                self.session = tf.Session(graph=self.tf_graph['detection_graph'], config=sess_config)
-            
-                # Load inpaint model
-                if self.transform == 'inpaint':
-                    self.inpaint_model = Inpainting(session=self.session)
-                    video_size = (480, 640)
-                    self.input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[0], video_size[1]*2, 3))
-                    self.output = self.inpaint_model.get_output(self.input_image_tf)
-                    self.inpaint_model.load_model()
-                    # Test run algorithm (to overclock model)
-                    test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_480.png"), 0)
-                    test_mask = np.expand_dims(cv2.imread("server/imgs/mask_480.png"), 0)
-                    input_image = np.concatenate([test_image, test_mask], axis=2)
-                    self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
+        # Connect to Tensorflow graph and run pretrained inpaint and object-detection models
+        self.tf_graph = self.connect_to_tensorflow_graph()
+        logging.info('Get session and send test image')
 
-                # Test run algorithm detection (to overclock model)
-                img = cv2.imread('server/imgs/render_img.jpeg')
-                self.object_detection(img)
+        with self.tf_graph['detection_graph'].as_default():
+            sess_config = tf.ConfigProto()
+            sess_config.gpu_options.allow_growth = True
+            self.session = tf.Session(graph=self.tf_graph['detection_graph'], config=sess_config)
+
+            # Load inpaint model
+            self.inpaint_model = Inpainting(session=self.session)
+            video_size = (240, 320)
+            self.input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[0], video_size[1]*2, 3))
+            self.output = self.inpaint_model.get_output(self.input_image_tf)
+            self.inpaint_model.load_model()
+            # Test run algorithm (to overclock model)
+            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_%s.png" % video_size[0]), 0)
+            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_%s.png" % video_size[0]), 0)
+            input_image = np.concatenate([test_image, test_mask], axis=2)
+            self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
+
+            # Test run algorithm detection (to overclock model)
+            img = cv2.imread('server/imgs/render_img.jpeg')
+            self.object_detection(img)
 
     async def recv(self):
         start_time = time.time()
         frame = await self.track.recv()
 
-        if self.transform:
+        if self.transform and not self.first_frame:
             img = frame.to_ndarray(format="bgr24")
 
-            if self.transform == 'boxes' or self.transform == 'inpaint':
+            if self.transform == 'boxes':
                 # Detection objects in frame
-                response = self.object_detection(img, draw_box=self.transform != 'inpaint')
+                response = self.object_detection(img, draw_box=True)
                 img = response['image']
-                objects = response['objects']
+                self.objects = response['objects']
 
-                if self.transform == 'inpaint':
-                    # Remove needed objects buy inpaint algorithm
+            if self.transform == 'inpaint':
+                init_img = img.copy()
+                img = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
+
+                self.objects = self.object_detection(img)['objects']
+
+                if self.objects:
+                    # Remove needed objects by inpaint algorithm
                     frame_time = time.time()
                     # Get mask objects
-                    mask = source.get_mask_objects(img, objects=objects)
+                    mask = source.get_mask_objects(img, objects=self.objects)
                     # Inpaint image
-                    img = img * (255 - mask) + mask
+                    img = img * (1 - mask) + 255 * mask
                     img = np.expand_dims(img, 0)
-                    mask = np.expand_dims(mask, 0)
-                    input_image = np.concatenate([img, mask], axis=2)
+                    input_mask = np.expand_dims(255 * mask, 0)
+                    input_image = np.concatenate([img, input_mask], axis=2)
                     result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
-                    img = result[0][:, :, ::-1]
-                    logging.info('Frame time: %s sec' % (time.time() - frame_time))
+                    img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
+                    logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
+                else:
+                    img = init_img
+
 
             elif self.transform == "edges":
                 # perform edge detection
@@ -97,16 +121,23 @@ class VideoTransformTrack(VideoStreamTrack):
                 img = cv2.bitwise_and(img_color, img_edges)
 
             # rebuild a VideoFrame, preserving timing information
-            frame = VideoFrame.from_ndarray(img, format="bgr24")
-            frame.pts = frame.pts
-            frame.time_base = frame.time_base
+            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            render_time = (time.time() - start_time)
+            frames_time.append(render_time)
+            logging.info('Return frame in %.5f sec' % render_time)
+            return new_frame
 
-        logging.info('Return frame in %s' % (time.time() - start_time))
+        self.first_frame = False
+        logging.info('Return frame in %.5f sec' % (time.time() - start_time))
         return frame
 
     def connect_to_tensorflow_graph(self):
-        PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/frozen_inference_graph.pb"
+        PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
         PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
+
+        logging.info('Using Tensorflow Detection Graph and labels:\n%s\n%s' % (PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS))
 
         render_time = time.time()
         # net = cv2.dnn.readNetFromTensorflow(PATH_TO_FROZEN_GRAPH, PATH_TO_LABELS)
@@ -122,7 +153,7 @@ class VideoTransformTrack(VideoStreamTrack):
 
         category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
-        logging.info('Connecting Tensorflow model in %s sec' % (time.time() - render_time))
+        logging.info('Connecting Tensorflow model in %.5f sec' % (time.time() - render_time))
         return {
             'detection_graph': detection_graph,
             'category_index': category_index
@@ -134,7 +165,6 @@ class VideoTransformTrack(VideoStreamTrack):
         category_index = self.tf_graph['category_index']
 
         with detection_graph.as_default():
-            logging.info('Start object detecting on image')
             # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
             image_np_expanded = np.expand_dims(img, axis=0)
             image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
@@ -162,30 +192,40 @@ class VideoTransformTrack(VideoStreamTrack):
                     line_thickness=8)
 
             num_detections = int(out[0][0])
-            im_height, im_width = img.shape[:2]
-            percent_detection = 0.4
+            percent_detection = 0.5
             objects = []
             for i in range(num_detections):
                 if out[1][0, i] > percent_detection:
-                    position = out[2][0][i]
-                    (xmin, xmax, ymin, ymax) = (
-                        position[1] * im_width, position[3] * im_width, position[0] * im_height,
-                        position[2] * im_height)
+                    class_id = int(out[3][0][i])
+                    if 'all' in self.objects_to_remove or class_id in self.objects_to_remove:
+                        position = out[2][0][i]
+                        (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
-                    width_object = xmax - xmin
-                    height_object = ymax - ymin
-                    objects.append({'x': int(xmin), 'y': int(ymin), 'width': width_object, 'height': height_object})
+                        objects.append(
+                            {
+                                "class_id": class_id,
+                                "position": {
+                                    'x_min': xmin,
+                                    'y_min': ymin,
+                                    'x_max': xmax,
+                                    'y_max': ymax
+                                }
+                            }
+                        )
 
             logging.info(
-                str([category_index.get(value) for index, value in enumerate(out[3][0])
-                     if out[1][0, index] > percent_detection])
+                'Number detected objects to remove: ' + str(len(objects))
             )
 
-            logging.info('Render image in %s' % (time.time() - render_time))
+            logging.info('Detection object in frame: %.5f sec' % (time.time() - render_time))
             return {
                 'objects': objects,
                 'image': img
             }
+
+
+def get_average_time_render():
+    return sum(frames_time) / (len(frames_time) if frames_time else 1)
 
 
 def get_image(request_json, masking=False, inpaint=False):
@@ -205,14 +245,10 @@ def get_image(request_json, masking=False, inpaint=False):
         )
 
     try:
-        if masking:
-            image_np = source.get_image_masking(img, objects, class_objects)
-        elif inpaint:
+        if inpaint:
             image_np = source.get_mask_objects(img, objects)
         else:
             image_np = np.array(source.decode_input_image(img))
-
-        source.remove_all_generate_files()
 
         success, image = cv2.imencode('.png', image_np)
         encoded_image = base64.b64encode(image.tobytes())
