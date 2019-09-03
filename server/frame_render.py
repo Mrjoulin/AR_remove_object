@@ -29,26 +29,6 @@ except ValueError:
 frames_time = []
 
 
-class DataChannel:
-    def __init__(self, chanel):
-        self.chanel = chanel
-        self.video = None
-
-        video_transform_labels = [
-            '',
-            'edges',
-            'cartoon',
-            'inpaint',
-            'boxes'
-        ]
-
-        @self.chanel.on("message")
-        def on_message(message):
-            if isinstance(message, dict) and message['name'] in video_transform_labels:
-                if self.video is not None:
-                    self.video.transform = message['name']
-
-
 class VideoTransformTrack(VideoStreamTrack):
     def __init__(self, track, transform):
         super().__init__()  # don't forget this!
@@ -56,7 +36,7 @@ class VideoTransformTrack(VideoStreamTrack):
         self.transform = transform['name']
         self.objects = []
         # "all" - to remove all detected objects
-        self.objects_to_remove = transform['src'] if self.transform == 'inpaint' else ["all"]   
+        self.objects_to_remove = transform['src'] if self.transform == 'inpaint' else ["all"]
         self.first_frame = True
 
         # Connect to Tensorflow graph and run pretrained inpaint and object-detection models
@@ -91,15 +71,19 @@ class VideoTransformTrack(VideoStreamTrack):
         if self.transform and not self.first_frame:
             img = frame.to_ndarray(format="bgr24")
 
-            if self.transform == 'boxes' or self.transform == 'inpaint':
+            if self.transform == 'boxes':
                 # Detection objects in frame
-                init_img = img.copy()
-                img = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
-                response = self.object_detection(img, draw_box=self.transform != 'inpaint')
+                response = self.object_detection(img, draw_box=True)
                 img = response['image']
                 self.objects = response['objects']
 
-                if self.transform == 'inpaint' and self.objects:
+            if self.transform == 'inpaint':
+                init_img = img.copy()
+                img = cv2.resize(img, (img.shape[1] // 2, img.shape[0] // 2))
+
+                self.objects = self.object_detection(img)['objects']
+
+                if self.objects:
                     # Remove needed objects by inpaint algorithm
                     frame_time = time.time()
                     # Get mask objects
@@ -111,7 +95,10 @@ class VideoTransformTrack(VideoStreamTrack):
                     input_image = np.concatenate([img, input_mask], axis=2)
                     result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
                     img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
-                    logging.info('Frame time: %.5f sec' % (time.time() - frame_time))
+                    logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
+                else:
+                    img = init_img
+
 
             elif self.transform == "edges":
                 # perform edge detection

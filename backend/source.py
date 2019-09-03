@@ -32,10 +32,6 @@ def get_mask_objects(image, objects=None, masks=None, boxes=None, classes_to_ren
     elif masks.any():
         mask_np = postprocess(mask_np, boxes, masks, draw=False, classes_to_render=classes_to_render)
 
-    # start_time = time.time()
-    # image_np = cv2.inpaint(image, mask_np, 0.1, cv2.INPAINT_NS)
-    # logging.info('Inpaint image: %s sec' % (time.time() - start_time))
-    # mask_np = np.expand_dims(mask_np, axis=2)
     return mask_np
 
 

@@ -65,8 +65,8 @@ Vidos processing using the selected algorithm (see clause 2.1)
 
 Example:
 ```bash
-# Use a --masking algoritm to render a video
-python run.py --render_directory videos/input_videos/to_render/IMG_0080.MOV --inpaint
+# Use a --inpaint algoritm to render a video
+python run.py --render_video videos/input_videos/to_render/IMG_0080.MOV --inpaint
 ```
 The final video will be in videos/out_videos directory
 
@@ -75,7 +75,7 @@ Images processing using the selected algorithm (see clause 2.1)
 
 Example:
 ```bash
-# Use a --masking algoritm to render an image
+# Use a --inpaint algoritm to render an image
 python run.py --render_image server/imgs/render_img.jpeg --inpaint
 ```
 The final image will be in AR_remover directory

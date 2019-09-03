@@ -20,7 +20,6 @@ URL = "http://127.0.0.1:5000/"
 # URL = "http://84.201.133.73:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
-data_channels = dict()
 
 
 async def init(request):
