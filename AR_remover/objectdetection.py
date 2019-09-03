@@ -54,7 +54,7 @@ def camera(video_path=0):
 def tensorflow_render(cap, video_size, render_image=False, render_video=False, number_video=None, tf2=False):
     frame_per_second = 30.0
     if render_video:
-        inpaint_name = f"videos/out_videos/out_inpaint_video{('_%s' % number_video) if number_video else ''}" \
+        inpaint_name = f"videos/out_inpaint_video{('_%s' % number_video) if number_video else ''}" \
                        f"{'_tf2' if tf2 else ''}.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
@@ -79,6 +79,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
     # Local variables
     inpaint = True  # render_video or render_image
     small_size = (video_size[0] // 2, video_size[1] // 2)
+    fps_time = time.time()
     procent_detecion = 0.5
     render_frames = 0
     logging.info('Start rendering')
@@ -90,10 +91,11 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
             input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
             output = inpaint_session.get_output(input_image_tf)
             inpaint_session.load_model()
-            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_240.png"), 0)
-            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_240.png"), 0)
-            test_input_image = np.concatenate([test_image, test_mask], axis=2)
-            inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
+            if small_size == (320, 240):
+                test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_240.png"), 0)
+                test_mask = np.expand_dims(cv2.imread("server/imgs/mask_240.png"), 0)
+                test_input_image = np.concatenate([test_image, test_mask], axis=2)
+                inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
 
             # Load new inpaint model
             # inpaint_session = NewInpainting(session=sess)
@@ -115,7 +117,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 ret, image_np = cap.read()
                 if ret:
                     initial_image = image_np.copy()
-                    image_np = cv2.resize(image_np, small_size)
+                    image_np = cv2.resize(image_np, small_size if inpaint else video_size)
                     logging.info(f'Render image shape: {str(image_np.shape)}')
                 else:
                     cap.release()
@@ -158,7 +160,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         position = out[2][0][i]
                         (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
-                        objects.append({'x_min': xmin, 'y_min': ymin, 'x_max': xmax, 'y_max': ymax})
+                        objects.append({'position': {'x_min': xmin, 'y_min': ymin, 'x_max': xmax, 'y_max': ymax}})
 
                         class_id = int(out[3][0][i])
                         score = float(out[1][0][i])
@@ -168,7 +170,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         # objects_class.append(class_id)
                 # Visualize detected bounding boxes.
                 logging.info(
-                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.4])
+                    str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])
                 )
                 logging.info('Detection objects in %s sec' % (time.time() - start_time))
 
@@ -196,6 +198,8 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         save_file.write(image.tobytes())
 
                 cv2.imshow('object detection', cv2.resize(image_np, video_size))
+                render_frames += 1
+                logging.info('FPS: %s' % (render_frames / (time.time() - fps_time)))
 
                 if render_video:
                     logging.info('Write a inpaint render moment')
@@ -227,7 +231,4 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                     break
 
                 if render_video:
-                    render_frames += 1
                     logging.info("Rendering %s seconds video" % (render_frames / frame_per_second))
-
-    source.remove_all_generate_files()

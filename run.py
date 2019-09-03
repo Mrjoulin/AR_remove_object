@@ -1,9 +1,9 @@
 import os
 import cv2
+import time
 import logging
 import argparse
 import absl.logging
-from time import time
 
 # Local modules
 from AR_remover.objectdetection import *
@@ -20,7 +20,7 @@ logging.basicConfig(
 
 def render_video_directory(render_directory, inpaint=False, tf2=False):
     logging.info('Start render videos in  %s' % render_directory)
-    render_start_time = time()
+    render_start_time = time.time()
     try:
         videos = os.listdir(render_directory)
     except Exception as e:
@@ -46,12 +46,12 @@ def render_video_directory(render_directory, inpaint=False, tf2=False):
         video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         video_size = (int(video_width), int(video_height))
         tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, number_video=number_video + 1, tf2=tf2)
-    logging.info(f'---- Rendering {str(len(videos))} videos for {str(time() - render_start_time)} seconds ----')
+    logging.info(f'---- Rendering {str(len(videos))} videos for {str(time.time() - render_start_time)} seconds ----')
 
 
 def video_render(video_path, inpaint=False, tf2=False):
     logging.info('Start render video - %s' % video_path)
-    render_start_time = time()
+    render_start_time = time.time()
 
     if not inpaint:
         logging.warning('You have not selected no one render. If you want to continue, press ENTER, else press any key')
@@ -68,12 +68,12 @@ def video_render(video_path, inpaint=False, tf2=False):
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     video_size = (int(video_width), int(video_height))
     tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, tf2=tf2)
-    logging.info('---- Rendering video for %s seconds ----' % (time() - render_start_time))
+    logging.info('---- Rendering video for %s seconds ----' % (time.time() - render_start_time))
 
 
 def image_render(image_path, inpaint=False, tf2=False):
     logging.info('Start rendering image in %s' % image_path)
-    render_start_time = time()
+    render_start_time = time.time()
 
     if not inpaint:
         logging.warning('You have not selected no one render. If you want to continue, press ENTER, else press any key')
@@ -93,7 +93,7 @@ def image_render(image_path, inpaint=False, tf2=False):
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     video_size = (int(video_width), int(video_height))
     tensorflow_render(cap=cap, video_size=video_size, render_image=inpaint, tf2=tf2)
-    logging.info('---- Rendering image for %s seconds ----' % str(time() - render_start_time))
+    logging.info('---- Rendering image for %s seconds ----' % str(time.time() - render_start_time))
 
 
 def online_render(tf2=False):

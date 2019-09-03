@@ -81,14 +81,40 @@ async def get_inpaint_image(request):
 async def offer(request):
     '''
     :param request:
-    sdp, type: <string>, <string> - for WebRTC connection
-    video_transform: {
-                        name: <name_algorithm> - Options: "boxes", "inpaint", "edges", "cartoon" or empty "".
-                        src: [<additional variables>] - for "inpaint" -- [<class object>] (For example: ['people'])
-                                                        for others -- []
+        sdp, type: <string>, <string> - for WebRTC connection
+        video_transform: (check Input in Data Channel) - it's need to start
     :return:
         "boxes" - stream frames with visualized detected objects
         "inpaint" - stream frames with remove selected object
+
+    Data Channel:
+    Input:
+        {
+            "message_id": <message id>
+            "name": <name_algorithm>, - name algorithm.Options: "", "edges", "cartoon", "boxes", "inpaint"
+            "src": [<additional variables>] - for "inpaint" -- [<class id objects>] (For example: [1, 15]; ["all"])
+                                              for others -- []
+        }
+
+    Output:
+        {
+            "message_id": <message id>,
+            "data": [
+                {
+                    "class_id": <class id object>, - for example: 23 (int)
+                    "position: {
+                        "x_min": <position top left point of the rectangle>, - from the left edge (example: 0,1325..)
+                        "y_min": <position top left point of the rectangle>, - from the top edge (example: 0,3271..)
+                        "x_max": <position bottom right point of the rectangle>, - from the left edge (example: 0,562..)
+                        "y_max": <position bottom right point of the rectangle> - from the top edge (example: 0,8932..)
+                    }
+                },
+                ...
+
+            ] - detected objects: for "inpaint" - removed objects
+                                  for "boxes" - all detected objects
+                                  for others - []
+        }
     '''
 
     params = await request.json()
@@ -98,13 +124,6 @@ async def offer(request):
     pc_id = "PeerConnection(%s)" % uuid.uuid4()
     pcs.add(pc)
     logging.info(pc_id + " " + "Created for %s" % request.remote)
-
-    @pc.on("datachannel")
-    def on_datachannel(channel):
-        @channel.on("message")
-        def on_message(message):
-            if isinstance(message, str) and message.startswith("ping"):
-                channel.send("pong" + message[4:])
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():
@@ -118,8 +137,36 @@ async def offer(request):
         logging.info("Track {kind} received. Video transform: {transform}".format(kind=track.kind,
                                                                                   transform=params["video_transform"]))
 
-        local_video = VideoTransformTrack(track, transform=params["video_transform"])
+        local_video = (VideoTransformTrack(track, transform=params["video_transform"]))
         pc.addTrack(local_video)
+
+        @pc.on("datachannel")
+        def on_datachannel(channel):
+            logging.info('Create Data Channel')
+
+            @channel.on("message")
+            def on_message(message):
+                video_transform_labels = ['', 'edges', 'cartoon', 'inpaint', 'boxes']
+                message = json.loads(message)
+                logging.info('Get message in data channel: %s' % message)
+
+                if isinstance(message, dict) and 'name' in message.keys() and \
+                        message['name'] in video_transform_labels:
+                    video_transform = message['name']
+                    local_video.transform = video_transform
+
+                    if video_transform == 'inpaint' and 'src' in message.keys() and \
+                            isinstance(message['src'], list):
+                        local_video.objects_to_remove = message['src']
+                    else:
+                        local_video.objects_to_remove = ["all"]
+
+                    # Send response in Data Channel 
+                    response = {
+                        "message_id": message["message_id"],
+                        "data": local_video.objects
+                    }
+                    channel.send(str(response))  # json.dumps(local_video[0].objects)
 
     # handle offer
     await pc.setRemoteDescription(offer)
