@@ -91,11 +91,10 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
             input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
             output = inpaint_session.get_output(input_image_tf)
             inpaint_session.load_model()
-            if small_size == (320, 240):
-                test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_240.png"), 0)
-                test_mask = np.expand_dims(cv2.imread("server/imgs/mask_240.png"), 0)
-                test_input_image = np.concatenate([test_image, test_mask], axis=2)
-                inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
+            test_image = np.expand_dims(cv2.resize(cv2.imread("server/imgs/inpaint.png"), small_size), 0)
+            test_mask = np.expand_dims(cv2.resize(cv2.imread("server/imgs/mask.png"), small_size), 0)
+            test_input_image = np.concatenate([test_image, test_mask], axis=2)
+            inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
 
             # Load new inpaint model
             # inpaint_session = NewInpainting(session=sess)
@@ -141,15 +140,15 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                     [num_detections, scores, boxes, classes],
                     feed_dict={image_tensor: image_np_expanded})
                 # Visualization of the results of a detection.
-                if not inpaint:
-                    vis_util.visualize_boxes_and_labels_on_image_array(
-                        image_np,
-                        np.squeeze(out[2][0]),
-                        np.squeeze(out[3][0]).astype(np.int32),
-                        np.squeeze(out[1][0]),
-                        category_index,
-                        use_normalized_coordinates=True,
-                        line_thickness=8)
+                # if not inpaint:
+                #     vis_util.visualize_boxes_and_labels_on_image_array(
+                #        image_np,
+                #        np.squeeze(out[2][0]),
+                #        np.squeeze(out[3][0]).astype(np.int32),
+                #        np.squeeze(out[1][0]),
+                #        category_index,
+                #        use_normalized_coordinates=True,
+                #        line_thickness=8)
 
                 num_detections = int(out[0][0])
                 im_height, im_width = image_np.shape[:2]
@@ -166,8 +165,12 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         score = float(out[1][0][i])
                         logging.info(f'classId: {str(class_id)}; score: {str(score)}; box: {str(position)}')
 
-                        # update classes objects to hide
-                        # objects_class.append(class_id)
+                        # Visualization of the results of a detection.
+                        if not inpaint:
+                            color = (136, 218, 43)
+                            cv2.rectangle(image_np, (int(xmin*im_width), int(ymin*im_height)),
+                                          (int(xmax*im_width), int(ymax*im_height)), color, 8)
+
                 # Visualize detected bounding boxes.
                 logging.info(
                     str([category_index.get(value) for index, value in enumerate(out[3][0]) if out[1][0, index] > 0.5])

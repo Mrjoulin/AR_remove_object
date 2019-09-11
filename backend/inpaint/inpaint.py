@@ -2,12 +2,14 @@ import os
 import cv2
 import time
 import json
+import shutil
 import logging
 import argparse
 import subprocess
 import numpy as np
 import neuralgym as ng
 import tensorflow as tf
+import absl.logging
 from argparse import Namespace
 
 # Local imports
@@ -17,6 +19,21 @@ from backend.inpaint.net.network import GMCNNModel
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INPAINT_MODEL_DIR = os.path.join(ROOT, 'models/release_places2_256/')
 NEWINPAINT_MODEL_DIR = os.path.join(ROOT, 'models/paris-streetview_256x256_rect')
+
+with open(os.path.abspath(ng.__file__), 'r') as f:
+    ng_data = f.readlines()
+
+if ng_data[0] != '# Modified\n':
+    logging.info('Rewrite logging configuration')
+    remove_rows = [58, 59, 62, 77, 78, 79]
+    for row in remove_rows:
+        ng_data[row] = '# ' + ng_data[row]
+    ng_data.insert(0, '# Modified\n')
+
+    with open(os.path.abspath(ng.__file__), 'w') as f:
+        f.writelines(ng_data)
+
+    shutil.rmtree('./neuralgym_logs')
 
 
 class Inpainting:
@@ -112,17 +129,17 @@ if __name__ == '__main__':
     #result = model.session.run(response)
     #cv2.imwrite(args.output, result[0][:, :, ::-1])
 
-    inpaint_session = NewInpainting()
+    inpaint_session = Inpainting()
     image = cv2.imread(args.image)
     mask = cv2.imread(args.mask, 0).astype(np.float32)
     mask = np.expand_dims(mask, axis=2)
     input_image_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 3])
     input_mask_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 1])
-    output = inpaint_session.get_output(input_image_tf, input_mask_tf, reuse=False)
+    output = inpaint_session.get_output(input_image_tf)
     inpaint_session.load_model()
     frame_time = time.time()
     image = image * (1 - mask / 255) + mask
-    cv2.imwrite(args.output.replace('.png', '_input.png'), image.astype(np.uint8))
+    cv2.imwrite(args.output.replace('.%s' % args.output.split('.')[-1], '_input.png'), image.astype(np.uint8))
     image = np.expand_dims(image, 0)
     mask = np.expand_dims(mask / 255, 0)
     result = inpaint_session.session.run(output, feed_dict={input_image_tf: image, input_mask_tf: mask})

@@ -12,8 +12,6 @@ from aiortc import VideoStreamTrack
 
 # Tensorflow modules
 import tensorflow as tf
-from object_detection.utils import label_map_util
-from object_detection.utils import visualization_utils as vis_util
 
 # local modules
 from backend import source
@@ -34,6 +32,7 @@ class VideoTransformTrack(VideoStreamTrack):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform['name']
+        self.frame_size = transform['frame_size']  # [width, height]
         self.objects = []
         # "all" - to remove all detected objects
         self.objects_to_remove = transform['src'] if self.transform == 'inpaint' else ["all"]
@@ -43,26 +42,23 @@ class VideoTransformTrack(VideoStreamTrack):
         self.tf_graph = self.connect_to_tensorflow_graph()
         logging.info('Get session and send test image')
 
-        with self.tf_graph['detection_graph'].as_default():
+        with self.tf_graph.as_default():
             sess_config = tf.ConfigProto()
             sess_config.gpu_options.allow_growth = True
-            self.session = tf.Session(graph=self.tf_graph['detection_graph'], config=sess_config)
+            self.session = tf.Session(graph=self.tf_graph, config=sess_config)
 
             # Load inpaint model
             self.inpaint_model = Inpainting(session=self.session)
-            video_size = (240, 320)
-            self.input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, video_size[0], video_size[1]*2, 3))
+            small_size = (self.frame_size[0] // 2, self.frame_size[1] // 2)
+            self.input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0]*2, 3))
             self.output = self.inpaint_model.get_output(self.input_image_tf)
             self.inpaint_model.load_model()
-            # Test run algorithm (to overclock model)
-            test_image = np.expand_dims(cv2.imread("server/imgs/inpaint_%s.png" % video_size[0]), 0)
-            test_mask = np.expand_dims(cv2.imread("server/imgs/mask_%s.png" % video_size[0]), 0)
+            # Test run algorithm detection and inpainting (to overclock model)
+            img = cv2.resize(cv2.imread('server/imgs/render_img.jpeg'), small_size)
+            test_image = np.expand_dims(img, 0)
+            test_mask = np.expand_dims(source.get_mask_objects(img, self.object_detection(img)['objects']), 0)
             input_image = np.concatenate([test_image, test_mask], axis=2)
             self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
-
-            # Test run algorithm detection (to overclock model)
-            img = cv2.imread('server/imgs/render_img.jpeg')
-            self.object_detection(img)
 
     async def recv(self):
         start_time = time.time()
@@ -98,7 +94,6 @@ class VideoTransformTrack(VideoStreamTrack):
                     logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
                 else:
                     img = init_img
-
 
             elif self.transform == "edges":
                 # perform edge detection
@@ -151,45 +146,29 @@ class VideoTransformTrack(VideoStreamTrack):
                 od_graph_def.ParseFromString(serialized_graph)
                 tf.import_graph_def(od_graph_def, name='')
 
-        category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
-
         logging.info('Connecting Tensorflow model in %.5f sec' % (time.time() - render_time))
-        return {
-            'detection_graph': detection_graph,
-            'category_index': category_index
-        }
+        return detection_graph
 
     def object_detection(self, img, draw_box=False):
         render_time = time.time()
-        detection_graph = self.tf_graph['detection_graph']
-        category_index = self.tf_graph['category_index']
+        self.tf_graph = self.tf_graph
 
-        with detection_graph.as_default():
+        with self.tf_graph.as_default():
             # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
             image_np_expanded = np.expand_dims(img, axis=0)
-            image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
+            image_tensor = self.tf_graph.get_tensor_by_name('image_tensor:0')
             # Each box represents a part of the image where a particular object was detected.
-            boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
+            boxes = self.tf_graph.get_tensor_by_name('detection_boxes:0')
             # Each score represent how level of confidence for each of the objects.
             # Score is shown on the result image, together with the class label.
-            scores = detection_graph.get_tensor_by_name('detection_scores:0')
-            classes = detection_graph.get_tensor_by_name('detection_classes:0')
-            num_detections = detection_graph.get_tensor_by_name('num_detections:0')
+            scores = self.tf_graph.get_tensor_by_name('detection_scores:0')
+            classes = self.tf_graph.get_tensor_by_name('detection_classes:0')
+            num_detections = self.tf_graph.get_tensor_by_name('num_detections:0')
             # Actual detection.
 
             out = self.session.run(
                 [num_detections, scores, boxes, classes],
                 feed_dict={image_tensor: image_np_expanded})
-
-            if draw_box:
-                vis_util.visualize_boxes_and_labels_on_image_array(
-                    img,
-                    np.squeeze(out[2][0]),
-                    np.squeeze(out[3][0]).astype(np.int32),
-                    np.squeeze(out[1][0]),
-                    category_index,
-                    use_normalized_coordinates=True,
-                    line_thickness=8)
 
             num_detections = int(out[0][0])
             percent_detection = 0.5
@@ -212,6 +191,11 @@ class VideoTransformTrack(VideoStreamTrack):
                                 }
                             }
                         )
+
+                        if draw_box:
+                            color = (136, 218, 43)  # RGB
+                            cv2.rectangle(img, (int(xmin * self.frame_size[0]), int(ymin * self.frame_size[1])),
+                                          (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
 
             logging.info(
                 'Number detected objects to remove: ' + str(len(objects))
