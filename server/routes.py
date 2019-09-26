@@ -161,11 +161,16 @@ async def offer(request):
                     else:
                         local_video.objects_to_remove = ["all"]
 
+                    fps = int(1 / get_average_time_render(video_transform) - 0.5)
+                    logging.info('FPS to return: %s' % fps)
+
                     # Send response in Data Channel 
                     response = {
                         "message_id": message["message_id"],
+                        "fps": fps,
                         "data": local_video.objects
                     }
+                    logging.info('Send message')
                     channel.send(str(response))  # json.dumps(local_video[0].objects)
 
     # handle offer
@@ -198,7 +203,7 @@ def make_api_request(url_server, method_name, **kwargs):
 
 async def on_shutdown(app):
     # close peer connections
-    logging.info('Average time of one frame: %.5f sec' % get_average_time_render())
+    logging.info('Average time of one frame: %.5f sec' % get_average_time_render('all'))
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()

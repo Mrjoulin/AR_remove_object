@@ -21,9 +21,15 @@ from backend.feature.track_object import plane_tracker
 from backend.inpaint.inpaint import Inpainting, NewInpainting
 # This is needed since the notebook is stored in the object_detection folder.
 sys.path.append("..")
-os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
-            "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
-            stdout=subprocess.PIPE).stdout.readlines()]))
+
+try:
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
+                "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
+                stdout=subprocess.PIPE).stdout.readlines()]))
+except ValueError:
+    logging.info('Get CUDA_VISIBLE_DEVICES: "0"')
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 
 if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
     raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
@@ -77,39 +83,40 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
     category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 
     # Local variables
-    inpaint = True  # render_video or render_image
+    inpaint = False  # render_video or render_image
     small_size = (video_size[0] // 2, video_size[1] // 2)
-    fps_time = time.time()
     procent_detecion = 0.5
-    render_frames = 0
+    frames_time = []
+    first_frame = True
     logging.info('Start rendering')
     with detection_graph.as_default():
         with tf.Session(graph=detection_graph, config=sess_config) as sess:
-            # Load inpaint model
-            inpaint_session = Inpainting(session=sess)
-            logging.info(f'Video shape: {str(video_size)}')
-            input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
-            output = inpaint_session.get_output(input_image_tf)
-            inpaint_session.load_model()
-            test_image = np.expand_dims(cv2.resize(cv2.imread("server/imgs/inpaint.png"), small_size), 0)
-            test_mask = np.expand_dims(cv2.resize(cv2.imread("server/imgs/mask.png"), small_size), 0)
-            test_input_image = np.concatenate([test_image, test_mask], axis=2)
-            inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
+            if inpaint:
+                # Load inpaint model
+                inpaint_session = Inpainting(session=sess)
+                logging.info(f'Video shape: {str(video_size)}')
+                input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
+                output = inpaint_session.get_output(input_image_tf)
+                inpaint_session.load_model()
+                test_image = np.expand_dims(cv2.resize(cv2.imread("server/imgs/inpaint.png"), small_size), 0)
+                test_mask = np.expand_dims(cv2.resize(cv2.imread("server/imgs/mask.png"), small_size), 0)
+                test_input_image = np.concatenate([test_image, test_mask], axis=2)
+                inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
 
-            # Load new inpaint model
-            # inpaint_session = NewInpainting(session=sess)
-            # image = cv2.imread("server/imgs/inpaint_480.png")
-            # mask = cv2.imread("server/imgs/mask_480.png", 0).astype(np.float32)
-            # mask = np.expand_dims(mask, axis=2) / 255
-            # input_image_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 3])
-            # input_mask_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 1])
-            # output = inpaint_session.get_output(input_image_tf, input_mask_tf, reuse=False)
-            # inpaint_session.load_model()
-            # image = image * (1 - mask) + 255 * mask
-            # image = np.expand_dims(image, 0)
-            # mask = np.expand_dims(mask, 0)
-            # result = inpaint_session.session.run(output, feed_dict={input_image_tf: image, input_mask_tf: mask})
-            # cv2.imwrite('server/imgs/output_480.png', result[0][:, :, ::-1])
+                # Load new inpaint model
+                # inpaint_session = NewInpainting(session=sess)
+                # image = cv2.imread("server/imgs/inpaint_480.png")
+                # mask = cv2.imread("server/imgs/mask_480.png", 0).astype(np.float32)
+                # mask = np.expand_dims(mask, axis=2) / 255
+                # input_image_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 3])
+                # input_mask_tf = tf.placeholder(dtype=tf.float32, shape=[1, image.shape[0], image.shape[1], 1])
+                # output = inpaint_session.get_output(input_image_tf, input_mask_tf, reuse=False)
+                # inpaint_session.load_model()
+                # image = image * (1 - mask) + 255 * mask
+                # image = np.expand_dims(image, 0)
+                # mask = np.expand_dims(mask, 0)
+                # result = inpaint_session.session.run(output, feed_dict={input_image_tf: image, input_mask_tf: mask})
+                # cv2.imwrite('server/imgs/output_480.png', result[0][:, :, ::-1])
 
             while cap.isOpened():
                 start_time = time.time()
@@ -201,8 +208,6 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         save_file.write(image.tobytes())
 
                 cv2.imshow('object detection', cv2.resize(image_np, video_size))
-                render_frames += 1
-                logging.info('FPS: %s' % (render_frames / (time.time() - fps_time)))
 
                 if render_video:
                     logging.info('Write a inpaint render moment')
@@ -218,7 +223,13 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
 
                 cv2.setMouseCallback('object detection', get_screen)
 
-                logging.info("--- %s seconds ---" % (time.time() - start_time))
+                render_time = time.time() - start_time
+                logging.info("--- %s seconds ------- " % render_time)
+                if not first_frame:                
+                    frames_time.append(render_time)
+                    logging.info("Average time %s sec" % (sum(frames_time) / len(frames_time)))
+                else:
+                    first_frame = False
 
                 if cv2.waitKey(20) & 0xFF == ord(' '):
                     inpaint = not inpaint

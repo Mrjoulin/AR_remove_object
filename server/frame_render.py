@@ -22,9 +22,15 @@ try:
                 "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
                 stdout=subprocess.PIPE).stdout.readlines()]))
 except ValueError:
+    logging.info('Get CUDA_VISIBLE_DEVICES: "0"')
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
-frames_time = []
+frames_time = {
+    "boxes": [],
+    "inpaint": [],
+    "edges": [],
+    "cartoon": []
+}
 
 
 class VideoTransformTrack(VideoStreamTrack):
@@ -120,7 +126,7 @@ class VideoTransformTrack(VideoStreamTrack):
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
             render_time = (time.time() - start_time)
-            frames_time.append(render_time)
+            frames_time[self.transform].append(render_time)
             logging.info('Return frame in %.5f sec' % render_time)
             return new_frame
 
@@ -208,8 +214,19 @@ class VideoTransformTrack(VideoStreamTrack):
             }
 
 
-def get_average_time_render():
-    return sum(frames_time) / (len(frames_time) if frames_time else 1)
+def get_average_time_render(algorithm):
+    if algorithm == 'all':
+        answer = {}
+        for key in frames_time.keys():
+            answer[key] = sum(frames_time[key]) / (len(frames_time[key]) if frames_time[key] else 1)
+        return answer
+
+    elif algorithm in frames_time.keys():
+        array = frames_time[algorithm].copy()
+        average_time = (sum(array) / len(array)) if array else 1.0
+        return average_time
+
+    return None
 
 
 def get_image(request_json, masking=False, inpaint=False):

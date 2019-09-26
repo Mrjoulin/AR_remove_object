@@ -23,17 +23,31 @@ NEWINPAINT_MODEL_DIR = os.path.join(ROOT, 'models/paris-streetview_256x256_rect'
 with open(os.path.abspath(ng.__file__), 'r') as f:
     ng_data = f.readlines()
 
-if ng_data[0] != '# Modified\n':
-    logging.info('Rewrite logging configuration')
-    remove_rows = [58, 59, 62, 77, 78, 79]
-    for row in remove_rows:
-        ng_data[row] = '# ' + ng_data[row]
-    ng_data.insert(0, '# Modified\n')
+try:
+    if ng_data[0] != '# Modified\n':
+        logging.info('Overwrite logging configuration')
+        remove_rows = [58, 59, 62, 77, 78, 79]
 
-    with open(os.path.abspath(ng.__file__), 'w') as f:
-        f.writelines(ng_data)
+        for row in remove_rows:
+            ng_data[row] = '# ' + ng_data[row]
+        ng_data.insert(0, '# Modified\n')
 
-    shutil.rmtree('./neuralgym_logs')
+        with open(os.path.abspath(ng.__file__), 'w') as f:
+            f.writelines(ng_data)
+
+        shutil.rmtree('./neuralgym_logs')
+except Exception as e:
+    logging.info('Unable to overwrite file')
+    if os.path.exists('./neuralgym_logs'):
+        logging.info('Rewrite logging configuration')
+        remove_rows = [58, 59, 62, 77, 78, 79]
+
+        logger = logging.getLogger()
+
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+
+        shutil.rmtree('./neuralgym_logs')
 
 
 class Inpainting:
