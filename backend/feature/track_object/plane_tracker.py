@@ -28,7 +28,7 @@ from collections import namedtuple
 import backend.feature.track_object.video as video
 import backend.feature.track_object.common as common
 from backend.feature.track_object.video import presets
-from AR_remover import objectdetection
+from local import objectdetection
 
 PY3 = sys.version_info[0] == 3
 

@@ -1,11 +1,24 @@
 import os
 import cv2
-import time
 import base64
 import random
 import logging
-import numpy as np
-from PIL import Image
+
+# Local modules
+from backend.detection.trt_detecton.coco import *
+
+# Layout of TensorRT network output metadata
+TRT_PREDICTION_LAYOUT = {
+    "image_id": 0,
+    "label": 1,
+    "confidence": 2,
+    "xmin": 3,
+    "ymin": 4,
+    "xmax": 5,
+    "ymax": 6
+}
+
+VISUALIZATION_THRESHOLD = 0.5
 
 
 def decode_input_image(image):
@@ -41,6 +54,55 @@ def merge_inpaint_image_to_initial(initial_image, inpaint_mask, inpaint_image):
     inpaint_objects = cv2.resize(inpaint_image, initial_size) * big_mask
     image_np = initial_image * (1 - big_mask)
     return image_np + inpaint_objects
+
+
+def fetch_prediction_field(field_name, detection_out, pred_start_idx):
+    """Fetches prediction field from prediction byte array.
+
+    After TensorRT inference, prediction data is saved in
+    byte array and returned by object detection network.
+    This byte array contains several pieces of data about
+    prediction - we call one such piece a prediction field.
+    The prediction fields layout is described in TRT_PREDICTION_LAYOUT.
+
+    This function, given prediction byte array returned by network,
+    staring index of given prediction and field name of interest,
+    returns prediction field data corresponding to given arguments.
+
+    Args:
+        field_name (str): field of interest, one of keys of TRT_PREDICTION_LAYOUT
+        detection_out (array): object detection network output
+        pred_start_idx (int): start index of prediction of interest in detection_out
+
+    Returns:
+        Prediction field corresponding to given data.
+    """
+    shift = TRT_PREDICTION_LAYOUT[field_name]
+    return detection_out[pred_start_idx + shift]
+
+
+def analyze_prediction(detection_out, pred_start_idx, image_np):
+    image_id = int(fetch_prediction_field("image_id", detection_out, pred_start_idx))
+    label = int(fetch_prediction_field("label", detection_out, pred_start_idx))
+    confidence = fetch_prediction_field("confidence", detection_out, pred_start_idx)
+    xmin = fetch_prediction_field("xmin", detection_out, pred_start_idx)
+    ymin = fetch_prediction_field("ymin", detection_out, pred_start_idx)
+    xmax = fetch_prediction_field("xmax", detection_out, pred_start_idx)
+    ymax = fetch_prediction_field("ymax", detection_out, pred_start_idx)
+    if confidence > VISUALIZATION_THRESHOLD:
+        class_name = COCO_CLASSES_LIST[label]
+        confidence_percentage = "{0:.0%}".format(confidence)
+        print("Detected {} with confidence {}".format(
+            class_name, confidence_percentage))
+
+        im_height, im_width = image_np.shape[:2]
+        print(image_np.shape)
+        print('xmin {}, xmax {}, ymin {}, ymax {}'.format(xmin, xmax, ymin, ymax))
+
+        cv2.rectangle(image_np, (int(xmin * im_width), int(ymin * im_height)),
+                      (int(xmax * im_width), int(ymax * im_height)), (192, 168, 15), 6)
+
+    return image_np
 
 
 def postprocess(frame, boxes, masks=None, draw=False, get_class_to_render=False, classes_to_render=None):
@@ -116,7 +178,7 @@ def drawBox(frame, classId, conf, left, top, right, bottom, classMask, maskThres
         mask = (classMask > maskThreshold)
         roi = frame[top:bottom + 1, left:right + 1][mask]
 
-        colorsFile = "AR_remover/objectdetection/colors.txt"
+        colorsFile = "local/objectdetection/colors.txt"
         with open(colorsFile, 'rt') as f:
             colorsStr = f.read().rstrip('\n').split('\n')
         colors = []

@@ -203,7 +203,7 @@ def make_api_request(url_server, method_name, **kwargs):
 
 async def on_shutdown(app):
     # close peer connections
-    logging.info('Average time of one frame: %.5f sec' % get_average_time_render('all'))
+    logging.info('Average time of one frame: %s sec' % get_average_time_render('all'))
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()

@@ -1,0 +1,22 @@
+{
+  "model_config": {
+    "model_name": "ssd_mobilenet_v1_coco",
+    "input_dir": "./local/tensorflow-graph",
+    "batch_size": 1,
+    "override_nms_score_threshold": 0.5
+  },
+  "optimization_config": {
+    "use_trt": true,
+    "precision_mode": "FP32",
+    "max_workspace_size_bytes": 1610612736,
+    "output_path": "local/engine/engine.buf"
+  },
+  "run_config": {
+    "percent_detection": 0.5,
+    "num_warmup_iterations": 1,
+    "inpaint": true,
+    "test_image_inpaint_path": "server/imgs/inpaint.png",
+    "test_mask_inpaint_path": "server/imgs/mask.png",
+    "reduction_ratio": 2
+  }
+}
