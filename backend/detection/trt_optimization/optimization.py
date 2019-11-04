@@ -142,9 +142,6 @@ def download_model(model_name, input_dir=None):
             If input_dir is None or if ``input_dir/<model_directory>`` already
             exists, the directory is copied to ``output_dir/<model_directory>``.
             Otherwise model is downloaded from Object Detection API repository.
-        output_dir: A string representing the directory to download the model
-            under.  A directory for the specified model will be created at
-            ``output_dir/<model_directory>``.
     Returns
     -------
         config_path: A string representing the path to the object detection
@@ -167,9 +164,12 @@ def download_model(model_name, input_dir=None):
 
     extract_dir = os.path.join(input_dir, model.extract_dir)
     if not os.path.exists(extract_dir):
+        if not os.path.exists(input_dir):
+            subprocess.call(['mkdir', '-p', input_dir])
         print('Downloading model from: %s' % model.url)
         subprocess.call(['wget', '-q', model.url, '-O', tar_file])
         subprocess.call(['tar', '-xzf', tar_file, '-C', input_dir])
+        subprocess.call(['rm', '-rf', tar_file])
 
     return config_path, checkpoint_path
 
@@ -192,7 +192,6 @@ def build_model(model_name,
     ----
         model_name: check download_model
         input_dir: check download_model
-        output_dir: check download_model
         override_nms_score_threshold: An optional float representing
             a NMS score threshold to override that specified in the object
             detection configuration file.
@@ -403,6 +402,7 @@ def optimize_model(frozen_graph,
 
     # write optimized model to disk
     if output_path is not None:
+        subprocess.call(['mkdir', '-p', os.path.dirname(output_path)])
         with open(output_path, 'wb') as f:
             f.write(frozen_graph.SerializeToString())
 

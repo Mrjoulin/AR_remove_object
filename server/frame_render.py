@@ -193,7 +193,9 @@ class VideoTransformTrack(VideoStreamTrack):
         for i in range(int(num_detections)):
             if scores[0, i] > percent_detection:
                 class_id = int(classes[0][i])
-                if 'all' in self.objects_to_remove or class_id in self.objects_to_remove:
+                logging.info('Detection class id: %s' % class_id)
+                
+                if ('all' in self.objects_to_remove) or (class_id in self.objects_to_remove):
                     position = boxes[0][i]
                     (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
