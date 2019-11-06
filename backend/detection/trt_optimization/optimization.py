@@ -565,7 +565,7 @@ def _read_image(image_path, image_shape):
     return np.array(image)
 
 
-if __name__ == '__main__':
+def test():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'test_config_path', default='./test.json',
@@ -603,3 +603,7 @@ if __name__ == '__main__':
                 raise AssertionError('ASSERTION FAILED: %s' % a)
             else:
                 print('ASSERTION PASSED: %s' % a)
+
+
+if __name__ == '__main__':
+    test()

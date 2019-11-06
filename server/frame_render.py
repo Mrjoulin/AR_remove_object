@@ -29,8 +29,7 @@ except ValueError:
 frames_time = {
     "boxes": [],
     "inpaint": [],
-    "edges": [],
-    "cartoon": []
+    "edges": []
 }
 
 CONFIG_PATH = './config.json'
@@ -131,22 +130,6 @@ class VideoTransformTrack(VideoStreamTrack):
                 # perform edge detection
                 img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
 
-            elif self.transform == "cartoon":
-                # prepare color
-                img_color = cv2.pyrDown(cv2.pyrDown(img))
-                for _ in range(6):
-                    img_color = cv2.bilateralFilter(img_color, 9, 9, 7)
-                img_color = cv2.pyrUp(cv2.pyrUp(img_color))
-
-                # prepare edges
-                img_edges = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-                img_edges = cv2.adaptiveThreshold(cv2.medianBlur(img_edges, 7), 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                                  cv2.THRESH_BINARY, 9, 2)
-                img_edges = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2RGB)
-
-                # combine color and edges
-                img = cv2.bitwise_and(img_color, img_edges)
-
             # rebuild a VideoFrame, preserving timing information
             new_frame = VideoFrame.from_ndarray(img, format="bgr24")
             new_frame.pts = frame.pts
@@ -194,7 +177,7 @@ class VideoTransformTrack(VideoStreamTrack):
             if scores[0, i] > percent_detection:
                 class_id = int(classes[0][i])
                 logging.info('Detection class id: %s' % class_id)
-                
+
                 if ('all' in self.objects_to_remove) or (class_id in self.objects_to_remove):
                     position = boxes[0][i]
                     (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])

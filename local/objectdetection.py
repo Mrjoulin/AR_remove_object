@@ -63,7 +63,14 @@ def camera(video_path=0):
     logging.info('%s frames per second' % (cnt / (time.time() - start_time)))
 
 
-def tensorflow_with_trt_render(cap, video_size):
+def tensorflow_with_trt_render(cap, video_size, video=False, image=False, output='./'):
+    frame_per_second = 30.0
+    if video:
+        number_video = len(os.listdir(output))
+        inpaint_name = os.path.join(output, "/out_video{:04d}.mp4".format(number_video))
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
+
     with open(PATH_TO_CONFIG, 'r') as f:
         config = json.load(f)
         logging.info('Configuration project:\n' + str(json.dumps(config, sort_keys=True, indent=4)))
@@ -87,7 +94,7 @@ def tensorflow_with_trt_render(cap, video_size):
     percent_detection = args["percent_detection"]
     num_warmup_iterations = args["num_warmup_iterations"]
     image_idx = 0
-    inpaint = args["inpaint"]  # render_video or render_image
+    inpaint = args["inpaint"]
     small_size = (video_size[0] // args["reduction_ratio"], video_size[1] // args["reduction_ratio"])
     logging.info('Start rendering')
     with tf.Graph().as_default() as tf_graph:
@@ -124,6 +131,9 @@ def tensorflow_with_trt_render(cap, video_size):
                     logging.info('Render image shape: %s' % str(image_np.shape))
                 else:
                     cap.release()
+                    if video:
+                        logging.info('Extracting inpainting render video in %s' % inpaint_name)
+                        out_inpaint_video.release()
                     cv2.destroyAllWindows()
                     break
 
@@ -182,6 +192,17 @@ def tensorflow_with_trt_render(cap, video_size):
 
                 logging.info('---- %s ms ----' % ((time.time() - start_time) * 1000))
                 cv2.imshow('object detection with TensorRT', image_np)
+
+                if image:
+                    path_to_save = os.path.join(output, 'output.png')
+                    logging.info('Save image to %s' % path_to_save)
+                    success, image = cv2.imencode('.png', image_np)
+                    with open(path_to_save, 'wb') as save_file:
+                        save_file.write(image.tobytes())
+
+                if video:
+                    logging.info('Write a inpaint render moment')
+                    out_inpaint_video.write(image_np)
 
                 if len(runtimes) % 10 == 0:
                     logging.info('Average time: %s' % np.mean(runtimes))

@@ -91,7 +91,7 @@ async def offer(request):
     Input:
         {
             "message_id": <message id>
-            "name": <name_algorithm>, - name algorithm.Options: "", "edges", "cartoon", "boxes", "inpaint"
+            "name": <name_algorithm>, - name algorithm.Options: "", "edges", "boxes", "inpaint"
             "src": [<additional variables>] - for "inpaint" -- [<class id objects>] (For example: [1, 15]; ["all"])
                                               for others -- []
         }
