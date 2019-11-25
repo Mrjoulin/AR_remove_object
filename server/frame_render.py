@@ -4,6 +4,7 @@ import time
 import json
 import base64
 import logging
+import threading
 import subprocess
 import numpy as np
 from aiohttp import web
@@ -124,7 +125,7 @@ class VideoTransformTrack(VideoStreamTrack):
                     input_image = np.concatenate([img, input_mask], axis=2)
                     result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
                     img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
-                    logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
+                    # logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
 
             elif self.transform == "edges":
                 # perform edge detection
@@ -138,12 +139,13 @@ class VideoTransformTrack(VideoStreamTrack):
             frames_time[self.transform].append(render_time)
             if len(frames_time[self.transform]) > 10:
                 del frames_time[self.transform][0]
-            logging.info('Return frame in %.5f sec' % render_time)
+            # logging.info('Return frame in %.5f sec' % render_time)
             return new_frame
         else:
             self.warmup_iterations -= 1
+            log_average_time_interval()
 
-        logging.info('Return frame in %.5f sec' % (time.time() - start_time))
+        logging.info('Return warm up frame in %.5f sec' % (time.time() - start_time))
         return frame
 
     def connect_to_tensorflow_graph(self):
@@ -162,7 +164,7 @@ class VideoTransformTrack(VideoStreamTrack):
         return frozen_graph
 
     def object_detection(self, img, draw_box=False):
-        render_time = time.time()
+        # render_time = time.time()
 
         image_np_expanded = np.expand_dims(img, axis=0)
 
@@ -176,7 +178,6 @@ class VideoTransformTrack(VideoStreamTrack):
         for i in range(int(num_detections)):
             if scores[0, i] > percent_detection:
                 class_id = int(classes[0][i])
-                logging.info('Detection class id: %s' % class_id)
 
                 if ('all' in self.objects_to_remove) or (class_id in self.objects_to_remove):
                     position = boxes[0][i]
@@ -199,15 +200,16 @@ class VideoTransformTrack(VideoStreamTrack):
                         cv2.rectangle(img, (int(xmin * self.frame_size[0]), int(ymin * self.frame_size[1])),
                                       (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
 
-        logging.info(
-            'Number detected objects to remove: ' + str(len(objects))
-        )
-
-        logging.info('Detection object in frame: %.5f sec' % (time.time() - render_time))
+        # logging.info('Detection object in frame: %.5f sec' % (time.time() - render_time))
         return {
             'objects': objects,
             'image': img
         }
+
+
+def log_average_time_interval():
+    threading.Timer(10.0, log_average_time_interval).start()
+    logging.info('Average time: %s' % get_average_time_render('all'))
 
 
 def get_average_time_render(algorithm):

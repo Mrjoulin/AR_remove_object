@@ -14,4 +14,4 @@ fi
 
 # Start the docker container
 echo "Starting docker container" 
-docker run -p 5000:5000 --runtime=nvidia -it -v `pwd`:/mnt --device=/dev/video0 -e DISPLAY=$DISPLAY -v $XSOCK:$XSOCK -v $XAUTH:$XAUTH -e XAUTHORITY=$XAUTH blurred
+docker run -p 5000:5000 --gpus all -it -v `pwd`:/mnt --device=/dev/video0 -v $XSOCK:$XSOCK -v $XAUTH:$XAUTH -e XAUTHORITY=$XAUTH blurred
