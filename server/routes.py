@@ -21,20 +21,18 @@ URL = "http://127.0.0.1:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
+# Load object detection and inpaint model
+RENDER = Render()
+
 
 async def init(request):
     logging.info('Run init page from IP: %s' % request.remote)
-    content = open(os.path.join(ROOT, "templates/true_thanos_web/index.html"), "r").read()
+    content = open(os.path.join(ROOT, "templates/test/index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
 
-async def init_css(request):
-    content = open(os.path.join(ROOT, "templates/true_thanos_web/static/css/style.css"), "r").read()
-    return web.Response(content_type="text/css", text=content)
-
-
 async def init_js(request):
-    content = open(os.path.join(ROOT, "templates/thanosar/js/webRTC.js"), "r").read()
+    content = open(os.path.join(ROOT, "templates/test/src/client.js"), "r").read()
     return web.Response(content_type="application/javascript", text=content)
 
 
@@ -137,7 +135,7 @@ async def offer(request):
         logging.info("Track {kind} received. Video transform: {transform}".format(kind=track.kind,
                                                                                   transform=params["video_transform"]))
 
-        local_video = (VideoTransformTrack(track, transform=params["video_transform"]))
+        local_video = (VideoTransformTrack(track, transform=params["video_transform"], render=RENDER))
         pc.addTrack(local_video)
 
         @pc.on("datachannel")
@@ -224,8 +222,7 @@ def run_app(port=5000, host=None, cert_file=None, key_file=None):
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
-    app.router.add_get('/static/css/style.css', init_css)
-    # app.router.add_get('/js/webRTC.js', init_js)
+    app.router.add_get('/src/client.js', init_js)
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)

@@ -12,6 +12,7 @@
     "output_path": "local/engine/engine.buf"
   },
   "run_config": {
+    "frame_size": [640, 480],
     "percent_detection": 0.5,
     "num_warmup_iterations": 1,
     "inpaint": true,

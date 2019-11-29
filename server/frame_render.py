@@ -39,16 +39,10 @@ with open(CONFIG_PATH, 'r') as f:
     logging.info('Configuration project:\n' + str(json.dumps(CONFIG, sort_keys=True, indent=4)))
 
 
-class VideoTransformTrack(VideoStreamTrack):
-    def __init__(self, track, transform):
-        super().__init__()  # don't forget this!
-        self.track = track
-        self.transform = transform['name']
-        self.frame_size = tuple(transform['frame_size'])  # [width, height]
-        self.objects = []
-        # "all" - to remove all detected objects
-        self.objects_to_remove = ["all"] if self.transform != 'inpaint' else transform['src']
+class Render:
+    def __init__(self):
         self.args = CONFIG["run_config"]
+        self.frame_size = tuple(self.args['frame_size'])  # [<width>, <height>]
         self.warmup_iterations = self.args["num_warmup_iterations"]
 
         # Connect to Tensorflow graph and run pretrained inpaint and object-detection models
@@ -72,9 +66,11 @@ class VideoTransformTrack(VideoStreamTrack):
             # Load inpaint model
             self.inpaint_model = Inpainting(session=self.session)
 
+            small_width = self.frame_size[0] // self.args["reduction_ratio"]
+            small_height = self.frame_size[1] // self.args["reduction_ratio"]
             self.small_size = (
-                self.frame_size[0] // self.args["reduction_ratio"],
-                self.frame_size[1] // self.args["reduction_ratio"]
+                small_width - small_width % 8,
+                small_height - small_height % 8
             )
             self.input_image_tf = tf.placeholder(
                 dtype=tf.float32,
@@ -85,68 +81,32 @@ class VideoTransformTrack(VideoStreamTrack):
             # Test run algorithm detection and inpainting (to overclock model)
             # Load test image
             img = cv2.resize(cv2.imread(self.args["test_image_inpaint_path"]), self.frame_size)
-            # Test detection
-            test_objects = self.object_detection(img)['objects']
-            # Resize image to need inpaint size
-            img = cv2.resize(img, self.small_size)
-            # Test inpaint
-            test_image = np.expand_dims(img, 0)
-            test_mask = np.expand_dims(source.get_mask_objects(img, test_objects), 0)
-            input_image = np.concatenate([test_image, test_mask], axis=2)
-            self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
+            # Test running
+            self.run(img, transform='inpaint')
 
-    async def recv(self):
-        start_time = time.time()
-        frame = await self.track.recv()
+    def run(self, image, transform, objects_to_remove=None):
+        """
+        :param image: Initial image
+        :param transform: Algorithm to use
+        :param objects_to_remove: (optional) class objects to remove with "inpaint". Default: ["all"]
+        :return: {
+            "image": <image>, -- Result image
+            "objects": <objects> -- All detected objects
+        }
+        """
+        if not objects_to_remove:
+            objects_to_remove = ['all']
 
-        if self.transform and self.warmup_iterations <= 0:
-            img = frame.to_ndarray(format="bgr24")
+        response = self.object_detection(image, objects_to_remove, draw_box=transform == 'boxes')
+        img, objects = response["image"], response["objects"]
 
-            if self.transform == 'boxes':
-                # Detection objects in frame
-                response = self.object_detection(img, draw_box=True)
-                img = response['image']
-                self.objects = response['objects']
+        if transform == 'inpaint' and objects:
+            img = self.inpaint_image(img, objects)
 
-            if self.transform == 'inpaint':
-                self.objects = self.object_detection(img)['objects']
-
-                if self.objects:
-                    init_img = img.copy()
-                    img = cv2.resize(img, self.small_size)
-                    # Remove needed objects by inpaint algorithm
-                    frame_time = time.time()
-                    # Get mask objects
-                    mask = source.get_mask_objects(img, objects=self.objects)
-                    # Inpaint image
-                    img = img * (1 - mask) + 255 * mask
-                    img = np.expand_dims(img, 0)
-                    input_mask = np.expand_dims(255 * mask, 0)
-                    input_image = np.concatenate([img, input_mask], axis=2)
-                    result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
-                    img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
-                    # logging.info('Frame inpaint time: %.5f sec' % (time.time() - frame_time))
-
-            elif self.transform == "edges":
-                # perform edge detection
-                img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
-
-            # rebuild a VideoFrame, preserving timing information
-            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
-            new_frame.pts = frame.pts
-            new_frame.time_base = frame.time_base
-            render_time = (time.time() - start_time)
-            frames_time[self.transform].append(render_time)
-            if len(frames_time[self.transform]) > 10:
-                del frames_time[self.transform][0]
-            # logging.info('Return frame in %.5f sec' % render_time)
-            return new_frame
-        else:
-            self.warmup_iterations -= 1
-            log_average_time_interval()
-
-        logging.info('Return warm up frame in %.5f sec' % (time.time() - start_time))
-        return frame
+        return {
+            "image": img,
+            "objects": objects
+        }
 
     def connect_to_tensorflow_graph(self):
         render_time = time.time()
@@ -163,9 +123,7 @@ class VideoTransformTrack(VideoStreamTrack):
         logging.info('Optimized Tensorflow model in %.5f sec' % (time.time() - render_time))
         return frozen_graph
 
-    def object_detection(self, img, draw_box=False):
-        # render_time = time.time()
-
+    def object_detection(self, img, objects_to_remove, draw_box=False):
         image_np_expanded = np.expand_dims(img, axis=0)
 
         # Actual detection.
@@ -179,7 +137,7 @@ class VideoTransformTrack(VideoStreamTrack):
             if scores[0, i] > percent_detection:
                 class_id = int(classes[0][i])
 
-                if ('all' in self.objects_to_remove) or (class_id in self.objects_to_remove):
+                if ('all' in objects_to_remove) or (class_id in objects_to_remove):
                     position = boxes[0][i]
                     (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
 
@@ -200,11 +158,76 @@ class VideoTransformTrack(VideoStreamTrack):
                         cv2.rectangle(img, (int(xmin * self.frame_size[0]), int(ymin * self.frame_size[1])),
                                       (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
 
-        # logging.info('Detection object in frame: %.5f sec' % (time.time() - render_time))
         return {
             'objects': objects,
             'image': img
         }
+
+    def inpaint_image(self, img, objects):
+        init_img = img.copy()
+        img = cv2.resize(img, self.small_size)
+        # Remove needed objects by inpaint algorithm
+        frame_time = time.time()
+        # Get mask objects
+        mask = source.get_mask_objects(img, objects=objects)
+        # Inpaint image
+        img = img * (1 - mask) + 255 * mask
+        img = np.expand_dims(img, 0)
+        input_mask = np.expand_dims(255 * mask, 0)
+        input_image = np.concatenate([img, input_mask], axis=2)
+        result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
+        # Merge the result of program to initial image
+        img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
+        return img
+
+
+class VideoTransformTrack(VideoStreamTrack):
+    def __init__(self, track, transform, render):
+        super().__init__()  # don't forget this!
+        self.track = track
+        self.render = render
+        self.transform = transform['name']
+        self.args = CONFIG["run_config"]
+        self.frame_size = tuple(self.args['frame_size'])  # [<width>, <height>]
+        self.warmup_iterations = self.args["num_warmup_iterations"]
+        self.objects = []
+        # "all" - to remove all detected objects
+        self.objects_to_remove = ["all"] if self.transform != 'inpaint' else transform['src']
+
+    async def recv(self):
+        start_time = time.time()
+        frame = await self.track.recv()
+
+        if self.transform and self.warmup_iterations <= 0:
+            img = frame.to_ndarray(format="bgr24")
+
+            if img.shape[:2] != self.frame_size:
+                img = cv2.resize(img, self.frame_size)
+
+            if self.transform == 'boxes' or self.transform == 'inpaint':
+                res = self.render.run(image=img, transform=self.transform, objects_to_remove=self.objects_to_remove)
+                img, self.objects = res["image"], res["objects"]
+            else:
+                # Perform edge detection
+                # Default algorithm
+                img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
+
+            # rebuild a VideoFrame, preserving timing information
+            new_frame = VideoFrame.from_ndarray(img, format="bgr24")
+            new_frame.pts = frame.pts
+            new_frame.time_base = frame.time_base
+            render_time = (time.time() - start_time)
+            frames_time[self.transform].append(render_time)
+            if len(frames_time[self.transform]) > 10:
+                del frames_time[self.transform][0]
+            # logging.info('Return frame in %.5f sec' % render_time)
+            return new_frame
+        else:
+            self.warmup_iterations -= 1
+            log_average_time_interval()
+
+        logging.info('Return warm up frame in %.5f sec' % (time.time() - start_time))
+        return frame
 
 
 def log_average_time_interval():
