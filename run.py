@@ -6,7 +6,7 @@ import argparse
 import absl.logging
 
 # Local modules
-from AR_remover.objectdetection import *
+from local.objectdetection import *
 
 
 logging.root.removeHandler(absl.logging._absl_handler)
@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 
-def render_video_directory(render_directory, inpaint=False, tf2=False):
+def render_video_directory(render_directory, inpaint=False, output='./', tf=False):
     logging.info('Start render videos in  %s' % render_directory)
     render_start_time = time.time()
     try:
@@ -33,6 +33,9 @@ def render_video_directory(render_directory, inpaint=False, tf2=False):
         if success:
             return None
 
+    if not os.path.exists(output):
+        subprocess.call(['mkdir', '-f', output])
+
     for number_video in range(len(videos)):
         path = os.path.join(render_directory, videos[number_video])
         logging.info('Render file %s' % videos[number_video])
@@ -45,11 +48,14 @@ def render_video_directory(render_directory, inpaint=False, tf2=False):
         video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         video_size = (int(video_width), int(video_height))
-        tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, number_video=number_video + 1, tf2=tf2)
-    logging.info(f'---- Rendering {str(len(videos))} videos for {str(time.time() - render_start_time)} seconds ----')
+        if tf:
+            tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, number_video=number_video + 1)
+        else:
+            tensorflow_with_trt_render(cap=cap, video_size=video_size, video=True, output=output)
+    logging.info('---- Rendering %s videos for %s seconds ----' % (len(videos), (time.time() - render_start_time)))
 
 
-def video_render(video_path, inpaint=False, tf2=False):
+def video_render(video_path, inpaint=False, output='./', tf=False):
     logging.info('Start render video - %s' % video_path)
     render_start_time = time.time()
 
@@ -64,14 +70,20 @@ def video_render(video_path, inpaint=False, tf2=False):
     except:
         raise FileNotFoundError('Error for rendering file')
 
+    if not os.path.exists(output):
+        subprocess.call(['mkdir', '-f', output])
+
     video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     video_size = (int(video_width), int(video_height))
-    tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, tf2=tf2)
+    if tf:
+        tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, tf2=tf)
+    else:
+        tensorflow_with_trt_render(cap=cap, video_size=video_size, video=True, output=output)
     logging.info('---- Rendering video for %s seconds ----' % (time.time() - render_start_time))
 
 
-def image_render(image_path, inpaint=False, tf2=False):
+def image_render(image_path, inpaint=False, output='./', tf=False):
     logging.info('Start rendering image in %s' % image_path)
     render_start_time = time.time()
 
@@ -89,19 +101,28 @@ def image_render(image_path, inpaint=False, tf2=False):
     else:
         raise FileExistsError('No exists image file in %s' % image_path)
 
+    if not os.path.exists(output):
+        subprocess.call(['mkdir', '-f', output])
+
     video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     video_size = (int(video_width), int(video_height))
-    tensorflow_render(cap=cap, video_size=video_size, render_image=inpaint, tf2=tf2)
+    if tf:
+        tensorflow_render(cap=cap, video_size=video_size, render_image=inpaint, tf2=tf)
+    else:
+        tensorflow_with_trt_render(cap=cap, video_size=video_size, image=True, output=output)
     logging.info('---- Rendering image for %s seconds ----' % str(time.time() - render_start_time))
 
 
-def online_render(tf2=False):
+def online_render(tf=False):
     # Ran an online rendering
     logging.info('Ran online rendering')
     video_size = (640, 480)
     cap = cv2.VideoCapture(0)
-    tensorflow_render(cap=cap, video_size=video_size, tf2=tf2)
+    if tf:
+        tensorflow_render(cap=cap, video_size=video_size)
+    else:
+        tensorflow_with_trt_render(cap=cap, video_size=video_size)
 
 
 def only_camera_connection(video_path=0):
@@ -111,25 +132,26 @@ def only_camera_connection(video_path=0):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='A True Thanos remover object in a video, image or online')
-    parser.add_argument('--render_online', action='store_true', default=False, help='Online rendering')
-    parser.add_argument('--render_directory', type=str, default='', help='Path a directory to render videos')
-    parser.add_argument('--render_video', type=str, default='', help='Path a video to render')
-    parser.add_argument('--render_image', type=str, default='', help='Path an image to render')
+    parser = argparse.ArgumentParser(description='A Blurred can remove object in a video, image or online')
+    parser.add_argument('--online', '-o', action='store_true', default=False, help='Online rendering')
+    parser.add_argument('--directory', '-d', type=str, default='', help='Path a directory to render videos')
+    parser.add_argument('--video', '-v', type=str, default='', help='Path a video to render')
+    parser.add_argument('--image', '-im', type=str, default='', help='Path an image to render')
+    parser.add_argument('--output', '-out', type=str, default='./', help='Output directory')
     # parser.add_argument('--use_server', action='store_true', default=False, help='Use server for rendering image')
     # parser.add_argument('--opencv', '--cv', action='store_true', default=False, help='Use a OpenCv to object '
     #                                                                                  'detection and masking')
-    parser.add_argument('--tensorflow2', action='store_true', default=False, help='Use more accurate tensorflow')
-    parser.add_argument('--inpaint', action='store_true', default=False, help='Use a inpaint rendering')
+    parser.add_argument('--tensorflow', '-tf', action='store_true', default=False, help='Use more accurate tensorflow')
+    parser.add_argument('--inpaint', '-i', action='store_true', default=True, help='Use a inpaint rendering')
     args = parser.parse_args()
 
-    if args.render_directory:
-        render_video_directory(render_directory=args.render_directory, inpaint=args.inpaint, tf2=args.tensorflow2)
-    elif args.render_video:
-        video_render(video_path=args.render_video, tf2=args.tensorflow2, inpaint=args.inpaint)
-    elif args.render_image:
-        image_render(image_path=args.render_image, tf2=args.tensorflow2, inpaint=args.inpaint)
-    elif args.render_online:
-        online_render(tf2=args.tensorflow2)
+    if args.directory:
+        render_video_directory(render_directory=args.directory, inpaint=args.inpaint, tf=args.tf, output=args.output)
+    elif args.video:
+        video_render(video_path=args.video, tf=args.tensorflow, output=args.output, inpaint=args.inpaint)
+    elif args.image:
+        image_render(image_path=args.image, tf=args.tensorflow, output=args.output, inpaint=args.inpaint)
+    elif args.online:
+        online_render(tf=args.tensorflow)
     else:
         only_camera_connection()

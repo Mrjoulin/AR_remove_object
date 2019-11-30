@@ -1,13 +1,11 @@
 requests
-numpy
+numpy==1.16.2
 pyyaml
 setuptools
 easydict
 opencv-python
 Pillow
-scikit-learn
-scikit-image
 aiohttp
 aiortc
-tensorflow-gpu
+tensorflow-gpu==1.14.0
 git+https://github.com/JiahuiYu/neuralgym

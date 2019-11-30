@@ -14,7 +14,7 @@ from argparse import Namespace
 
 # Local imports
 from backend.inpaint.inpaint_model import InpaintCAModel
-from backend.inpaint.net.network import GMCNNModel
+# from backend.inpaint.net.network import GMCNNModel
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INPAINT_MODEL_DIR = os.path.join(ROOT, 'models/release_places2_256/')

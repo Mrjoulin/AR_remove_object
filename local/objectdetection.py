@@ -2,6 +2,7 @@ import os
 import sys
 import cv2
 import time
+import json
 import base64
 import logging
 import subprocess
@@ -13,14 +14,15 @@ from distutils.version import StrictVersion
 
 # Tensorflow object detection modules
 from object_detection.utils import label_map_util
-from object_detection.utils import visualization_utils as vis_util
+# from object_detection.utils import visualization_utils as vis_util
 
 # local modules
-from backend import source
+from backend.source import *
 from backend.feature.track_object import plane_tracker
 from backend.inpaint.inpaint import Inpainting, NewInpainting
-# This is needed since the notebook is stored in the object_detection folder.
-sys.path.append("..")
+from backend.detection.trt_optimization.optimization import *
+# from backend.detection.trt_detecton import inference # TRT/TF inference wrappers
+
 
 try:
     os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
@@ -33,6 +35,10 @@ except ValueError:
 
 if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
     raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
+
+PATH_TO_CONFIG = './config.json'
+PATH_TO_FROZEN_GRAPH = "./local/tensorflow-graph/fast_boxes/frozen_inference_graph.pb"
+PATH_TO_LABELS = './local/tensorflow-graph/mscoco_label_map.pbtxt'
 
 
 def camera(video_path=0):
@@ -57,16 +63,162 @@ def camera(video_path=0):
     logging.info('%s frames per second' % (cnt / (time.time() - start_time)))
 
 
-def tensorflow_render(cap, video_size, render_image=False, render_video=False, number_video=None, tf2=False):
+def tensorflow_with_trt_render(cap, video_size, video=False, image=False, output='./'):
     frame_per_second = 30.0
-    if render_video:
-        inpaint_name = f"videos/out_inpaint_video{('_%s' % number_video) if number_video else ''}" \
-                       f"{'_tf2' if tf2 else ''}.mp4"
+    if video:
+        number_video = len(os.listdir(output))
+        inpaint_name = os.path.join(output, "/out_video{:04d}.mp4".format(number_video))
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
-    PATH_TO_FROZEN_GRAPH = "./AR_remover/tensorflow-graph/fast_boxes/frozen_inference_graph%s.pb" % ('2' if tf2 else '')
-    PATH_TO_LABELS = './AR_remover/tensorflow-graph/mscoco_label_map.pbtxt'
+    with open(PATH_TO_CONFIG, 'r') as f:
+        config = json.load(f)
+        logging.info('Configuration project:\n' + str(json.dumps(config, sort_keys=True, indent=4)))
+
+    frozen_graph = build_model(
+        **config['model_config']
+    )
+
+    # optimize model using source model
+    frozen_graph = optimize_model(
+        frozen_graph,
+        **config['optimization_config']
+    )
+
+    sess_config = tf.compat.v1.ConfigProto()
+    sess_config.gpu_options.allow_growth = True
+
+    # Local variables
+    args = config["run_config"]
+    runtimes = []  # list of runtimes for each batch
+    percent_detection = args["percent_detection"]
+    num_warmup_iterations = args["num_warmup_iterations"]
+    image_idx = 0
+    inpaint = args["inpaint"]
+    small_size = (video_size[0] // args["reduction_ratio"], video_size[1] // args["reduction_ratio"])
+    logging.info('Start rendering')
+    with tf.Graph().as_default() as tf_graph:
+        with tf.Session(config=sess_config) as sess:
+            tf.import_graph_def(frozen_graph, name='')
+            tf_input = tf_graph.get_tensor_by_name(INPUT_NAME + ':0')
+            tf_boxes = tf_graph.get_tensor_by_name(BOXES_NAME + ':0')
+            tf_classes = tf_graph.get_tensor_by_name(CLASSES_NAME + ':0')
+            tf_scores = tf_graph.get_tensor_by_name(SCORES_NAME + ':0')
+            tf_num_detections = tf_graph.get_tensor_by_name(
+                NUM_DETECTIONS_NAME + ':0')
+
+            if inpaint:
+                inpaint_session = Inpainting(session=sess)
+                logging.info('Video shape: %s' % str(video_size))
+                input_image_tf = tf.compat.v1.placeholder(
+                    dtype=tf.float32,
+                    shape=(1, small_size[1], small_size[0] * 2, 3)
+                )
+                output = inpaint_session.get_output(input_image_tf)
+                inpaint_session.load_model()
+                test_image = np.expand_dims(cv2.resize(cv2.imread(args["test_image_inpaint_path"]), small_size), 0)
+                test_mask = np.expand_dims(cv2.resize(cv2.imread(args["test_mask_inpaint_path"]), small_size), 0)
+
+                test_input_image = np.concatenate([test_image, test_mask], axis=2)
+                inpaint_session.session.run(output, feed_dict={input_image_tf: test_input_image})
+
+            while cap.isOpened():
+                ret, image_np = cap.read()
+                start_time = time.time()
+                if ret:
+                    initial_image = image_np.copy()
+                    image_np = cv2.resize(image_np, small_size if inpaint else video_size)
+                    logging.info('Render image shape: %s' % str(image_np.shape))
+                else:
+                    cap.release()
+                    if video:
+                        logging.info('Extracting inpainting render video in %s' % inpaint_name)
+                        out_inpaint_video.release()
+                    cv2.destroyAllWindows()
+                    break
+
+                batch_images = np.expand_dims(image_np, axis=0)
+
+                # run num_warmup_iterations outside of timing
+                if image_idx < num_warmup_iterations:
+                    boxes, classes, scores, num_detections = sess.run(
+                        [tf_boxes, tf_classes, tf_scores, tf_num_detections],
+                        feed_dict={tf_input: batch_images})
+                    image_idx += 1
+                else:
+                    # execute model and compute time difference
+                    t0 = time.time()
+                    boxes, classes, scores, num_detections = sess.run(
+                        [tf_boxes, tf_classes, tf_scores, tf_num_detections],
+                        feed_dict={tf_input: batch_images})
+                    t1 = time.time()
+
+                    # log runtime and image count
+                    runtimes.append(float(t1 - t0))
+                    logging.info("Detection time: %.4f ms" % (runtimes[-1] * 1000))
+
+                objects = []
+                for i in range(int(num_detections)):
+                    if scores[0, i] > percent_detection:
+                        position = boxes[0][i]
+                        (xmin, xmax, ymin, ymax) = (position[1], position[3], position[0], position[2])
+
+                        objects.append({'position': {'x_min': xmin, 'y_min': ymin, 'x_max': xmax, 'y_max': ymax}})
+
+                        class_id = int(classes[0][i])
+                        score = float(scores[0][i])
+                        logging.info('classId: %s; score: %s; box: %s' % (class_id, score, position))
+
+                        if not inpaint:
+                            # Visualization of the results of a detection.
+                            color = (136, 218, 43)
+                            cv2.rectangle(image_np, (int(xmin * video_size[0]), int(ymin * video_size[1])),
+                                          (int(xmax * video_size[0]), int(ymax * video_size[1])), color, 8)
+
+                if objects:
+                    # get inpainting image
+                    if inpaint:
+                        # Get mask objects
+                        mask_np = get_mask_objects(image_np, objects)
+                        # Inpainting Image
+                        frame_time = time.time()
+                        image_np = image_np * (1 - mask_np) + 255 * mask_np
+                        image_np = np.expand_dims(image_np, 0)
+                        input_mask = np.expand_dims(255 * mask_np, 0)
+                        input_image = np.concatenate([image_np, input_mask], axis=2)
+                        result = inpaint_session.session.run(output, feed_dict={input_image_tf: input_image})
+                        image_np = merge_inpaint_image_to_initial(initial_image, mask_np, result[0][:, :, ::-1])
+                        logging.info('Frame time: %s sec' % (time.time() - frame_time))
+
+                logging.info('---- %s ms ----' % ((time.time() - start_time) * 1000))
+                cv2.imshow('object detection with TensorRT', image_np)
+
+                if image:
+                    path_to_save = os.path.join(output, 'output.png')
+                    logging.info('Save image to %s' % path_to_save)
+                    success, image = cv2.imencode('.png', image_np)
+                    with open(path_to_save, 'wb') as save_file:
+                        save_file.write(image.tobytes())
+
+                if video:
+                    logging.info('Write a inpaint render moment')
+                    out_inpaint_video.write(image_np)
+
+                if len(runtimes) % 10 == 0:
+                    logging.info('Average time: %s' % np.mean(runtimes))
+
+                if cv2.waitKey(10) & 0xFF == ord('q') or cv2.waitKey(1) == 27:
+                    cv2.destroyAllWindows()
+                    break
+
+
+def tensorflow_render(cap, video_size, render_image=False, render_video=False, number_video=None, tf2=False):
+    frame_per_second = 30.0
+    if render_video:
+        inpaint_name = "videos/out_inpaint_video%s%s.mp4" % (('_%s' % number_video) if number_video else '',
+                                                             '_tf2' if tf2 else '')
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        out_inpaint_video = cv2.VideoWriter(inpaint_name, fourcc, frame_per_second, video_size, True)
 
     # Creating detection graph and config to Tensorflow Session
     detection_graph = tf.Graph()
@@ -94,7 +246,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
             if inpaint:
                 # Load inpaint model
                 inpaint_session = Inpainting(session=sess)
-                logging.info(f'Video shape: {str(video_size)}')
+                logging.info('Video shape: %s' % str(video_size))
                 input_image_tf = tf.placeholder(dtype=tf.float32, shape=(1, small_size[1], small_size[0] * 2, 3))
                 output = inpaint_session.get_output(input_image_tf)
                 inpaint_session.load_model()
@@ -124,7 +276,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 if ret:
                     initial_image = image_np.copy()
                     image_np = cv2.resize(image_np, small_size if inpaint else video_size)
-                    logging.info(f'Render image shape: {str(image_np.shape)}')
+                    logging.info('Render image shape: %s' % str(image_np.shape))
                 else:
                     cap.release()
                     if render_video:
@@ -170,7 +322,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
 
                         class_id = int(out[3][0][i])
                         score = float(out[1][0][i])
-                        logging.info(f'classId: {str(class_id)}; score: {str(score)}; box: {str(position)}')
+                        logging.info('classId: %s; score: %s; box: %s' % (class_id, score, position))
 
                         # Visualization of the results of a detection.
                         if not inpaint:
@@ -189,7 +341,7 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                     # get inpainting image
                     if inpaint:
                         # Get mask objects
-                        mask_np = source.get_mask_objects(image_np, objects)
+                        mask_np = get_mask_objects(image_np, objects)
                         # Inpainting Image
                         frame_time = time.time()
                         image_np = image_np * (1 - mask_np) + 255 * mask_np
@@ -197,11 +349,11 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                         input_mask = np.expand_dims(255 * mask_np, 0)
                         input_image = np.concatenate([image_np, input_mask], axis=2)
                         result = inpaint_session.session.run(output, feed_dict={input_image_tf: input_image})
-                        image_np = source.merge_inpaint_image_to_initial(initial_image, mask_np, result[0][:, :, ::-1])
+                        image_np = merge_inpaint_image_to_initial(initial_image, mask_np, result[0][:, :, ::-1])
                         logging.info('Frame time: %s sec' % (time.time() - frame_time))
 
                 if render_image:
-                    path_to_save = 'AR_remover/imgs/render_inpaint_image.png'
+                    path_to_save = 'local/imgs/render_inpaint_image.png'
                     logging.info('Save image to %s' % path_to_save)
                     success, image = cv2.imencode('.png', image_np)
                     with open(path_to_save, 'wb') as save_file:
@@ -243,6 +395,3 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
                 if cv2.waitKey(15) & 0xFF == ord('q') or cv2.waitKey(1) == 27:
                     cv2.destroyAllWindows()
                     break
-
-                if render_video:
-                    logging.info("Rendering %s seconds video" % (render_frames / frame_per_second))

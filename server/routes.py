@@ -21,20 +21,18 @@ URL = "http://127.0.0.1:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
 pcs = set()
 
+# Load object detection and inpaint model
+RENDER = Render()
+
 
 async def init(request):
     logging.info('Run init page from IP: %s' % request.remote)
-    content = open(os.path.join(ROOT, "templates/true_thanos_web/index.html"), "r").read()
+    content = open(os.path.join(ROOT, "templates/test/index.html"), "r").read()
     return web.Response(content_type="text/html", text=content)
 
 
-async def init_css(request):
-    content = open(os.path.join(ROOT, "templates/true_thanos_web/static/css/style.css"), "r").read()
-    return web.Response(content_type="text/css", text=content)
-
-
 async def init_js(request):
-    content = open(os.path.join(ROOT, "templates/thanosar/js/webRTC.js"), "r").read()
+    content = open(os.path.join(ROOT, "templates/test/src/client.js"), "r").read()
     return web.Response(content_type="application/javascript", text=content)
 
 
@@ -91,7 +89,7 @@ async def offer(request):
     Input:
         {
             "message_id": <message id>
-            "name": <name_algorithm>, - name algorithm.Options: "", "edges", "cartoon", "boxes", "inpaint"
+            "name": <name_algorithm>, - name algorithm. Options: "", "edges", "boxes", "inpaint"
             "src": [<additional variables>] - for "inpaint" -- [<class id objects>] (For example: [1, 15]; ["all"])
                                               for others -- []
         }
@@ -137,23 +135,32 @@ async def offer(request):
         logging.info("Track {kind} received. Video transform: {transform}".format(kind=track.kind,
                                                                                   transform=params["video_transform"]))
 
-        local_video = (VideoTransformTrack(track, transform=params["video_transform"]))
+        local_video = (VideoTransformTrack(track, transform=params["video_transform"], render=RENDER))
         pc.addTrack(local_video)
 
         @pc.on("datachannel")
         def on_datachannel(channel):
             logging.info('Create Data Channel')
+            algorithms_with_fps = {
+                '': 0,
+                'edges': 0,
+                'cartoon': 0,
+                'inpaint': 0,
+                'boxes': 0
+            }  # { "<name_algorithm>": <last_fps> }
 
             @channel.on("message")
             def on_message(message):
-                video_transform_labels = ['', 'edges', 'cartoon', 'inpaint', 'boxes']
+
                 message = json.loads(message)
-                logging.info('Get message in data channel: %s' % message)
 
                 if isinstance(message, dict) and 'name' in message.keys() and \
-                        message['name'] in video_transform_labels:
+                        message['name'] in algorithms_with_fps:
                     video_transform = message['name']
-                    local_video.transform = video_transform
+
+                    if video_transform != local_video.transform:
+                        logging.info('Set new algorithm: %s' % (video_transform if video_transform else '" "'))
+                        local_video.transform = video_transform
 
                     if video_transform == 'inpaint' and 'src' in message.keys() and \
                             isinstance(message['src'], list):
@@ -161,8 +168,10 @@ async def offer(request):
                     else:
                         local_video.objects_to_remove = ["all"]
 
-                    fps = int(1 / get_average_time_render(video_transform) - 0.5)
-                    logging.info('FPS to return: %s' % fps)
+                    fps = max(int(1 / get_average_time_render(video_transform) - 0.5), 1)
+                    if fps != algorithms_with_fps[video_transform]:
+                        logging.info('New FPS in %s: %s' % (video_transform if video_transform else '" "', fps))
+                        algorithms_with_fps[video_transform] = fps
 
                     # Send response in Data Channel 
                     response = {
@@ -170,7 +179,7 @@ async def offer(request):
                         "fps": fps,
                         "data": local_video.objects
                     }
-                    logging.info('Send message')
+
                     channel.send(str(response))  # json.dumps(local_video[0].objects)
 
     # handle offer
@@ -203,7 +212,7 @@ def make_api_request(url_server, method_name, **kwargs):
 
 async def on_shutdown(app):
     # close peer connections
-    logging.info('Average time of one frame: %.5f sec' % get_average_time_render('all'))
+    logging.info('Average time of one frame: %s sec' % get_average_time_render('all'))
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
     pcs.clear()
@@ -213,8 +222,7 @@ def run_app(port=5000, host=None, cert_file=None, key_file=None):
     app = web.Application()
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
-    app.router.add_get('/static/css/style.css', init_css)
-    # app.router.add_get('/js/webRTC.js', init_js)
+    app.router.add_get('/src/client.js', init_js)
     app.router.add_get('/test_inpaint', test_inpaint)
     app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)
