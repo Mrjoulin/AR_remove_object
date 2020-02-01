@@ -19,10 +19,14 @@ from backend import source
 from backend.inpaint.inpaint import Inpainting
 from backend.detection.trt_optimization.optimization import *
 
+from object_detection.utils import ops, visualization_utils
+
 try:
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
+    cuda_visible_devices = str(np.argmax([int(x.split()[2]) for x in subprocess.Popen(
                 "nvidia-smi -q -d Memory | grep -A4 GPU | grep Free", shell=True,
                 stdout=subprocess.PIPE).stdout.readlines()]))
+    print('CUDA VISIBLE DEVICES:\n', cuda_visible_devices, '\n\n')
+    os.environ['CUDA_VISIBLE_DEVICES'] = cuda_visible_devices
 except ValueError:
     logging.info('Get CUDA_VISIBLE_DEVICES: "0"')
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
@@ -53,36 +57,51 @@ class Render:
         with tf.Graph().as_default() as tf_graph:
             tf.import_graph_def(frozen_graph, name='')
             self.tf_input = tf_graph.get_tensor_by_name(INPUT_NAME + ':0')
-            self.tf_boxes = tf_graph.get_tensor_by_name(BOXES_NAME + ':0')
-            self.tf_classes = tf_graph.get_tensor_by_name(CLASSES_NAME + ':0')
-            self.tf_scores = tf_graph.get_tensor_by_name(SCORES_NAME + ':0')
-            self.tf_num_detections = tf_graph.get_tensor_by_name(
-                NUM_DETECTIONS_NAME + ':0')
+            tf_boxes = tf_graph.get_tensor_by_name(BOXES_NAME + ':0')
+            tf_classes = tf_graph.get_tensor_by_name(CLASSES_NAME + ':0')
+            tf_scores = tf_graph.get_tensor_by_name(SCORES_NAME + ':0')
+            tf_num_detections = tf_graph.get_tensor_by_name(NUM_DETECTIONS_NAME + ':0')
+            self.tf_params = [tf_boxes, tf_classes, tf_scores, tf_num_detections]
+            if self.args['use_masks_objects']:
+                tf_masks = tf_graph.get_tensor_by_name(MASKS_NAME + ':0')
+                detection_boxes = tf.squeeze(tf_boxes, [0])
+                detection_masks = tf.squeeze(tf_masks, [0])
+                # Reframe is required to translate mask from box coordinates to image coordinates and fit the image size.
+                real_num_detection = tf.cast(tf_num_detections[0], tf.int32)
+                detection_boxes = tf.slice(detection_boxes, [0, 0], [real_num_detection, -1])
+                detection_masks = tf.slice(detection_masks, [0, 0, 0], [real_num_detection, -1, -1])
+                detection_masks_reframed = ops.reframe_box_masks_to_image_masks(
+                    detection_masks, detection_boxes, self.frame_size[0], self.frame_size[1])
+                detection_masks_reframed = tf.cast(tf.greater(detection_masks_reframed, 0.5), tf.uint8)
+                # Follow the convention by adding back the batch dimension
+                tf_masks = tf.expand_dims(detection_masks_reframed, 0)
+                self.tf_params.append(tf_masks)
 
             sess_config = tf.ConfigProto()
             sess_config.gpu_options.allow_growth = True
             self.session = tf.Session(config=sess_config)
 
-            # Load inpaint model
-            self.inpaint_model = Inpainting(session=self.session)
+            if self.args["inpaint"]:
+                # Load inpaint model
+                self.inpaint_model = Inpainting(session=self.session)
 
-            small_width = self.frame_size[0] // self.args["reduction_ratio"]
-            small_height = self.frame_size[1] // self.args["reduction_ratio"]
-            self.small_size = (
-                small_width - small_width % 8,
-                small_height - small_height % 8
-            )
-            self.input_image_tf = tf.placeholder(
-                dtype=tf.float32,
-                shape=(1, self.small_size[1], self.small_size[0] * 2, 3)
-            )
-            self.output = self.inpaint_model.get_output(self.input_image_tf)
-            self.inpaint_model.load_model()
+                small_width = self.frame_size[0] // self.args["reduction_ratio"]
+                small_height = self.frame_size[1] // self.args["reduction_ratio"]
+                self.small_size = (
+                    small_width - small_width % 8,
+                    small_height - small_height % 8
+                )
+                self.input_image_tf = tf.placeholder(
+                    dtype=tf.float32,
+                    shape=(1, self.small_size[1], self.small_size[0] * 2, 3)
+                )
+                self.output = self.inpaint_model.get_output(self.input_image_tf)
+                self.inpaint_model.load_model()
             # Test run algorithm detection and inpainting (to overclock model)
             # Load test image
             img = cv2.resize(cv2.imread(self.args["test_image_inpaint_path"]), self.frame_size)
             # Test running
-            self.run(img, transform='inpaint')
+            self.run(img, transform=('inpaint' if self.args['inpaint'] else 'boxes'))
 
     def run(self, image, transform, objects_to_remove=None):
         """
@@ -98,10 +117,11 @@ class Render:
             objects_to_remove = ['all']
 
         response = self.object_detection(image, objects_to_remove, draw_box=transform == 'boxes')
-        img, objects = response["image"], response["objects"]
 
-        if transform == 'inpaint' and objects:
-            img = self.inpaint_image(img, objects)
+        if transform == 'inpaint' and response["objects"]:
+            response = self.inpaint_image(*response.values())
+
+        img, objects = response["image"], response["objects"]
 
         return {
             "image": img,
@@ -127,10 +147,16 @@ class Render:
         image_np_expanded = np.expand_dims(img, axis=0)
 
         # Actual detection.
-        boxes, classes, scores, num_detections = self.session.run(
-            [self.tf_boxes, self.tf_classes, self.tf_scores, self.tf_num_detections],
-            feed_dict={self.tf_input: image_np_expanded})
-
+        if self.args['use_masks_objects']:
+            boxes, classes, scores, num_detections, masks = self.session.run(
+                self.tf_params,
+                feed_dict={self.tf_input: image_np_expanded})
+            logging.info(str(masks[0]))
+            logging.info(str(masks[0].shape))
+        else:
+            boxes, classes, scores, num_detections = self.session.run(
+                self.tf_params,
+                feed_dict={self.tf_input: image_np_expanded})
         percent_detection = self.args["percent_detection"]
         objects = []
         for i in range(int(num_detections)):
@@ -153,10 +179,21 @@ class Render:
                         }
                     )
 
+                    mask = None
+                    if self.args['use_masks_objects']:
+                        mask = masks[0][i]
+                        mask = (mask > percent_detection).astype(np.uint8)
+                        objects[-1]["mask"] = mask
+
                     if draw_box:
                         color = (136, 218, 43)  # RGB
-                        cv2.rectangle(img, (int(xmin * self.frame_size[0]), int(ymin * self.frame_size[1])),
-                                      (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
+                        if mask is not None:
+                            alph = 0.5
+                            for j in range(3):
+                                img = img * (1 - mask * (1 - alph)) + alph * mask * color[j]
+                        else:
+                            cv2.rectangle(img, (int(xmin * self.frame_size[0]), int(ymin * self.frame_size[1])),
+                                          (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
 
         return {
             'objects': objects,
@@ -169,7 +206,7 @@ class Render:
         # Remove needed objects by inpaint algorithm
         frame_time = time.time()
         # Get mask objects
-        mask = source.get_mask_objects(img, objects=objects)
+        mask, objects = source.get_mask_objects(img, objects=objects)
         # Inpaint image
         img = img * (1 - mask) + 255 * mask
         img = np.expand_dims(img, 0)
@@ -178,7 +215,10 @@ class Render:
         result = self.inpaint_model.session.run(self.output, feed_dict={self.input_image_tf: input_image})
         # Merge the result of program to initial image
         img = source.merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
-        return img
+        return {
+            'objects': objects,
+            'image': img
+        }
 
 
 class VideoTransformTrack(VideoStreamTrack):
@@ -248,45 +288,3 @@ def get_average_time_render(algorithm):
         return average_time
 
     return None
-
-
-def get_image(request_json, masking=False, inpaint=False):
-    if 'img' in request_json and isinstance(request_json['img'], str) and \
-            'objects' in request_json and isinstance(request_json['objects'], list):
-        img = request_json['img']
-        objects = request_json['objects']
-        if masking and 'class_objects' in request_json and isinstance(request_json['class_objects'], list) and \
-                len(request_json['objects']) == len(request_json['class_objects']):
-            class_objects = request_json['class_objects']
-    else:
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'Partial Content'}
-            ),
-        )
-
-    try:
-        if inpaint:
-            image_np = source.get_mask_objects(img, objects)
-        else:
-            image_np = np.array(source.decode_input_image(img))
-
-        success, image = cv2.imencode('.png', image_np)
-        encoded_image = base64.b64encode(image.tobytes())
-        logging.info("Return Generate Masking Image")
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'img': encoded_image.decode("utf-8")}
-            ),
-        )
-
-    except Exception as e:
-        logging.error(e)
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'Internal Server Error'}
-            ),
-        )

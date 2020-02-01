@@ -281,6 +281,7 @@ def build_model(model_name,
 
 def optimize_model(frozen_graph,
                    use_trt=True,
+                   use_masks=False,
                    force_nms_cpu=True,
                    replace_relu6=True,
                    remove_assert=True,
@@ -334,7 +335,7 @@ def optimize_model(frozen_graph,
     -------
         A GraphDef representing the optimized model.
     """
-    # apply graph modifications
+    # apply graph modification
     if force_nms_cpu:
         frozen_graph = f_force_nms_cpu(frozen_graph)
     if replace_relu6:
@@ -344,6 +345,8 @@ def optimize_model(frozen_graph,
 
     # get input names
     output_names = [BOXES_NAME, CLASSES_NAME, SCORES_NAME, NUM_DETECTIONS_NAME]
+    if use_masks:
+        output_names.append(MASKS_NAME)
 
     # optionally perform TensorRT optimization
     if use_trt:
@@ -399,12 +402,6 @@ def optimize_model(frozen_graph,
                 feed_dict_fn=feed_dict_fn)
             calibration_time = time.time() - start_time
             print("time(s) (trt_calibration): %.4f" % calibration_time)
-
-    # write optimized model to disk
-    if output_path is not None:
-        subprocess.call(['mkdir', '-p', os.path.dirname(output_path)])
-        with open(output_path, 'wb') as f:
-            f.write(frozen_graph.SerializeToString())
 
     return frozen_graph
 

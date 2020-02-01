@@ -16,9 +16,8 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from backend import source
 from server.frame_render import *
 
-URL = "http://127.0.0.1:5000/"
-# URL = "http://84.201.133.73:5000/"
 ROOT = os.path.dirname(os.path.abspath(__file__))
+MAX_FPS = 30
 pcs = set()
 
 # Load object detection and inpaint model
@@ -34,46 +33,6 @@ async def init(request):
 async def init_js(request):
     content = open(os.path.join(ROOT, "templates/test/src/client.js"), "r").read()
     return web.Response(content_type="application/javascript", text=content)
-
-
-async def test_inpaint(requset):
-    test_json = json.loads(open('backend/test.json', 'r').read())
-    imgs = make_api_request(url_server=URL, method_name='get_inpaint_image',
-                            img=test_json['img'], objects=test_json['objects'])
-    response = await imgs.json()
-    logging.info('Return respose')
-    return web.Response(text=str(response))
-
-
-async def get_inpaint_image(request):
-
-    # ------------- GET INPAINT IMAGE -------------
-    # input json:
-    # {
-    #   "img": <BASE64-encoded img>,
-    #   "objects": [ {"x": <x>, "y": <y>, "width": <width>, "height": <height>}, ...]
-    # }
-    #
-    # output json:
-    # {
-    #   "payload": {
-    #       "img": <BASE64-encoded inpaint image>
-    # }
-    # }
-    logging.info('Get request')
-    try:
-        request_json = await request.json()
-        logging.info('Json received')
-    except:
-        logging.error('BAD REQUEST JSON')
-        return web.Response(
-            content_type="application/json",
-            text=json.dumps(
-                {'message': 'No Content'}
-            ),
-        )
-
-    return get_image(request_json, inpaint=True)
 
 
 async def offer(request):
@@ -168,9 +127,9 @@ async def offer(request):
                     else:
                         local_video.objects_to_remove = ["all"]
 
-                    fps = max(int(1 / get_average_time_render(video_transform) - 0.5), 1)
+                    fps = min(max(int(1 / get_average_time_render(video_transform) - 0.5), 1), MAX_FPS)
                     if fps != algorithms_with_fps[video_transform]:
-                        logging.info('New FPS in %s: %s' % (video_transform if video_transform else '" "', fps))
+                        logging.info('New FPS in %s: %s' % (video_transform if video_transform else '""', fps))
                         algorithms_with_fps[video_transform] = fps
 
                     # Send response in Data Channel 
@@ -223,8 +182,6 @@ def run_app(port=5000, host=None, cert_file=None, key_file=None):
     app.on_shutdown.append(on_shutdown)
     app.router.add_get('/', init)
     app.router.add_get('/src/client.js', init_js)
-    app.router.add_get('/test_inpaint', test_inpaint)
-    app.router.add_post('/get_inpaint_image', get_inpaint_image)
     app.router.add_post('/offer', offer)
 
     if cert_file is not None and key_file is not None:
