@@ -1,13 +1,21 @@
 import os
 import cv2
 import time
+import shutil
 import logging
 import argparse
 import absl.logging
 
 # Local modules
-from local.objectdetection import *
+from local.render import *
 
+logger = logging.getLogger()
+
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
+
+if os.path.exists('./neuralgym_logs'):
+    shutil.rmtree('./neuralgym_logs')
 
 logging.root.removeHandler(absl.logging._absl_handler)
 absl.logging._warn_preinit_stderr = False
@@ -18,7 +26,7 @@ logging.basicConfig(
 )
 
 
-def render_video_directory(render_directory, inpaint=False, output='./', tf=False):
+def render_video_directory(render_directory, inpaint=True, output='./', tf=False):
     logging.info('Start render videos in  %s' % render_directory)
     render_start_time = time.time()
     try:
@@ -28,7 +36,7 @@ def render_video_directory(render_directory, inpaint=False, output='./', tf=Fals
 
     videos.sort()
     if not inpaint:
-        logging.warning('You have not selected no one render. If you want to continue, press ENTER, else press any key')
+        logging.warning('You have not selected no one render. If you want to continue, ress ENTER, else press any key')
         success = input()
         if success:
             return None
@@ -51,11 +59,11 @@ def render_video_directory(render_directory, inpaint=False, output='./', tf=Fals
         if tf:
             tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, number_video=number_video + 1)
         else:
-            tensorflow_with_trt_render(cap=cap, video_size=video_size, video=True, output=output)
+            trt_render(cap=cap, video_path=path, output=output)
     logging.info('---- Rendering %s videos for %s seconds ----' % (len(videos), (time.time() - render_start_time)))
 
 
-def video_render(video_path, inpaint=False, output='./', tf=False):
+def video_render(video_path, inpaint=True, output='./', tf=False):
     logging.info('Start render video - %s' % video_path)
     render_start_time = time.time()
 
@@ -79,7 +87,7 @@ def video_render(video_path, inpaint=False, output='./', tf=False):
     if tf:
         tensorflow_render(cap=cap, video_size=video_size, render_video=inpaint, tf2=tf)
     else:
-        tensorflow_with_trt_render(cap=cap, video_size=video_size, video=True, output=output)
+        trt_render(cap=cap, video_path=video_path, output=output)
     logging.info('---- Rendering video for %s seconds ----' % (time.time() - render_start_time))
 
 
@@ -116,13 +124,13 @@ def image_render(image_path, inpaint=False, output='./', tf=False):
 
 def online_render(tf=False):
     # Ran an online rendering
-    logging.info('Ran online rendering')
+    logging.info('Run online rendering')
     video_size = (640, 480)
     cap = cv2.VideoCapture(0)
     if tf:
         tensorflow_render(cap=cap, video_size=video_size)
     else:
-        tensorflow_with_trt_render(cap=cap, video_size=video_size)
+        trt_render(cap=cap)
 
 
 def only_camera_connection(video_path=0):
@@ -146,7 +154,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.directory:
-        render_video_directory(render_directory=args.directory, inpaint=args.inpaint, tf=args.tf, output=args.output)
+        render_video_directory(render_directory=args.directory, inpaint=args.inpaint, tf=args.tensorflow, output=args.output)
     elif args.video:
         video_render(video_path=args.video, tf=args.tensorflow, output=args.output, inpaint=args.inpaint)
     elif args.image:

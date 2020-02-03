@@ -28,7 +28,7 @@ from collections import namedtuple
 import backend.feature.track_object.video as video
 import backend.feature.track_object.common as common
 from backend.feature.track_object.video import presets
-from local import objectdetection
+from local import render
 
 PY3 = sys.version_info[0] == 3
 
@@ -171,7 +171,7 @@ class App:
             if ch == ord('c'):
                 self.tracker.clear()
             if ch == ord('p'):
-                objectdetection.tensorflow_render(cv.VideoCapture(0), (800, 600))
+                render.tensorflow_render(cv.VideoCapture(0), (800, 600))
                 break
             if ch == 27:
                 break

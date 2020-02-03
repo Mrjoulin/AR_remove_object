@@ -1,8 +1,16 @@
+import os
+import shutil
 import logging
 import argparse
 import absl.logging
 from server.routes import run_app
 
+logger = logging.getLogger()
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
+
+if os.path.exists('./neuralgym_logs'):
+    shutil.rmtree('./neuralgym_logs')
 
 logging.root.removeHandler(absl.logging._absl_handler)
 absl.logging._warn_preinit_stderr = False

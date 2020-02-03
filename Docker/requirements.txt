@@ -1,0 +1,11 @@
+requests
+numpy==1.16.2
+pyyaml
+setuptools
+easydict
+opencv-python
+Pillow
+aiohttp
+aiortc
+tensorflow-gpu==1.14.0
+git+https://github.com/JiahuiYu/neuralgym
