@@ -4,6 +4,7 @@ import time
 import shutil
 import logging
 import argparse
+import subprocess
 import numpy as np
 import neuralgym as ng
 import tensorflow as tf
@@ -13,6 +14,43 @@ from backend.inpaint.net.v2.inpaint_model import InpaintCAModel
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 INPAINT_MODEL_DIR = os.path.join(ROOT, 'models/release_places2_v2/')
+
+MODELS = {
+    'places2_v1': {
+        'url': 'https://drive.google.com/uc?export=download&confirm=QjRw&id=1aakVS0CPML_Qg-PuXGE1Xaql96hNEKOU',
+        'name': 'places2_512x680_freeform.zip'
+    },
+    'places2_v2': {
+        'url': [
+            'https://drive.google.com/uc?export=download&id=1dyPD2hx0JTmMuHYa32j-pu--MXqgLgMy',
+            'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1z9dbEAzr5lmlCewixevFMTVBmNuSNAgK',
+            'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1ExY4hlx0DjVElqJlki57la3Qxu40uhgd',
+            'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1C7kPxqrpNpQF7B2UAKd_GvhUMk0prRdV'
+        ],
+        'name': [
+            'checkpoint',
+            'snap-0.data-00000-of-00001',
+            'snap-0.index',
+            'snap-0.meta'
+        ]
+    }
+}
+
+
+def download_model(model_name, input_dir=None):
+    model = MODELS[model_name]
+
+    if type(model['url']) is list:
+        subprocess.call(['mkdir', '-p', input_dir])
+        for url, name in zip(model['url'], model['name']):
+            subprocess.call(['wget', '-q', url, '-O', os.path.join(input_dir, name)])
+    else:
+        if not os.path.exists(input_dir):
+            subprocess.call(['mkdir', '-p', input_dir])
+        print('Downloading model from: %s' % model['url'])
+        subprocess.call(['wget', '-q', model['url'], '-O', os.path.join(input_dir, model['name'])])
+        subprocess.call(['tar', '-xzf', os.path.join(input_dir, model['name']), '-C', input_dir])
+        subprocess.call(['rm', '-rf', os.path.join(input_dir, model['name'])])
 
 
 class Inpainting:
@@ -29,6 +67,8 @@ class Inpainting:
     def load_model(self):
         load_model_time = time.time()
         logging.info('Using inpaint model: %s' % INPAINT_MODEL_DIR)
+        if not os.path.exists(INPAINT_MODEL_DIR):
+            download_model('places2_v2', INPAINT_MODEL_DIR)
         vars_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         assign_ops = []
         for var in vars_list:

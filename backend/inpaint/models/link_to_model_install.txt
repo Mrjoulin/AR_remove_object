@@ -1,3 +1,3 @@
 paris-streetview: https://drive.google.com/file/d/1wgesxSUfKGyPwGQMw6IXZ9GLeZ7YNQxu/view?usp=sharing
-places2: https://drive.google.com/file/d/1aakVS0CPML_Qg-PuXGE1Xaql96hNEKOU/view?usp=sharing
+places2: https://drive.google.com/uc?export=download&confirm=QjRw&id=1aakVS0CPML_Qg-PuXGE1Xaql96hNEKOU
 places2_v2: https://drive.google.com/drive/folders/1y7Irxm3HSHGvp546hZdAZwuNmhLUVcjO?usp=sharing
