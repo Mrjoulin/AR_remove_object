@@ -23,7 +23,7 @@ MODELS = {
     'places2_v2': {
         'url': [
             'https://drive.google.com/uc?export=download&id=1dyPD2hx0JTmMuHYa32j-pu--MXqgLgMy',
-            'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1z9dbEAzr5lmlCewixevFMTVBmNuSNAgK',
+            'https://www.dropbox.com/s/z9t46xrt34qh7ea/snap-0.data-00000-of-00001?dl=1',
             'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1ExY4hlx0DjVElqJlki57la3Qxu40uhgd',
             'https://drive.google.com/uc?export=download&confirm=bL_Y&id=1C7kPxqrpNpQF7B2UAKd_GvhUMk0prRdV'
         ],

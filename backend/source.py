@@ -27,7 +27,7 @@ def get_mask_objects(image, objects):
 
     for obj in objects:
         if 'mask' in obj:
-            mask_np += obj.pop('mask')
+            mask_np = mask_np + cv2.resize(obj.pop('mask'), (w, h)).reshape((h, w, 1))
         else:
             mask_np[int(obj['position']['y_min'] * h):int(obj['position']['y_max'] * h),
                     int(obj['position']['x_min'] * w):int(obj['position']['x_max'] * w)] = 1

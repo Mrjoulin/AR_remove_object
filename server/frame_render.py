@@ -196,8 +196,8 @@ class Render:
                                           (int(xmax * self.frame_size[0]), int(ymax * self.frame_size[1])), color, 8)
 
         return {
-            'objects': objects,
-            'image': img
+            'image': img,
+            'objects': objects
         }
 
     def inpaint_image(self, img, objects):

@@ -6,6 +6,6 @@ easydict
 opencv-python
 Pillow
 aiohttp
-aiortc
+aiortc==0.9.22
 tensorflow-gpu==1.14.0
 git+https://github.com/JiahuiYu/neuralgym
