@@ -10,6 +10,7 @@ import neuralgym as ng
 import tensorflow as tf
 
 # Local imports
+from backend.source import *
 from backend.inpaint.net.v2.inpaint_model import InpaintCAModel
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +54,7 @@ def download_model(model_name, input_dir=None):
         subprocess.call(['rm', '-rf', os.path.join(input_dir, model['name'])])
 
 
-class Inpainting:
+class LoadInpainting:
     def __init__(self, session=None):
         # ng.get_gpus(1)
         self.model = InpaintCAModel()
@@ -93,6 +94,39 @@ class Inpainting:
         return output
 
 
+class Inpaint(LoadInpainting):
+    def __init__(self, frame_size, reduction_ratio, session=None):
+        super().__init__(session)
+
+        self.small_size = tuple(np.array(frame_size) // reduction_ratio // 8 * 8)
+
+        self.input_image_tf = tf.placeholder(
+            dtype=tf.float32,
+            shape=(1, self.small_size[1], self.small_size[0] * 2, 3)
+        )
+        self.output = self.get_output(self.input_image_tf)
+        self.load_model()
+
+    def inpaint_image(self, img, objects):
+        init_img = img.copy()
+        img = cv2.resize(img, self.small_size)
+        # Remove needed objects by inpaint algorithm
+        # Get mask objects
+        mask, objects = get_mask_objects(img, objects=objects)
+        # Inpaint image
+        img = img * (1 - mask) + 255 * mask
+        img = np.expand_dims(img, 0)
+        input_mask = np.expand_dims(255 * mask, 0)
+        input_image = np.concatenate([img, input_mask], axis=2)
+        result = self.session.run(self.output, feed_dict={self.input_image_tf: input_image})
+        # Merge the result of program to initial image
+        img = merge_inpaint_image_to_initial(init_img, mask, result[0][:, :, ::-1])
+        return {
+            'objects': objects,
+            'image': img
+        }
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--image', default='', type=str,
@@ -103,10 +137,12 @@ if __name__ == '__main__':
                         help='Where to write output.')
     args = parser.parse_args()
 
-    inpaint_model = Inpainting()
+    inpaint_model = LoadInpainting()
+
+    # TODO rewrite this shit
 
     size = (640, 480)
-    small_size = (320, 240)
+    small_size = tuple(np.array(size) // 2)
     input_image_tf = tf.placeholder(
         dtype=tf.float32,
         shape=(1, small_size[1], small_size[0] * 2, 3)

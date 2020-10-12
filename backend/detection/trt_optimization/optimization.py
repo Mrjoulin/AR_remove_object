@@ -53,6 +53,16 @@ PIPELINE_CONFIG_NAME = 'pipeline.config'
 CHECKPOINT_PREFIX = 'model.ckpt'
 
 MODELS = {
+    'cars_number_detection': Model(
+        'cars_number_detection',
+        '',
+        'cars_number_detection'
+    ),
+    'logos_detection': Model(
+        'logos_detection',
+        '',
+        'logos_detection'
+    ),
     'ssd_mobilenet_v1_coco':
     Model(
         'ssd_mobilenet_v1_coco',
@@ -280,7 +290,6 @@ def build_model(model_name,
 
 
 def optimize_model(frozen_graph,
-                   use_trt=True,
                    use_masks=False,
                    force_nms_cpu=True,
                    replace_relu6=True,
@@ -349,59 +358,58 @@ def optimize_model(frozen_graph,
         output_names.append(MASKS_NAME)
 
     # optionally perform TensorRT optimization
-    if use_trt:
-        graph_size = len(frozen_graph.SerializeToString())
-        num_nodes = len(frozen_graph.node)
+    graph_size = len(frozen_graph.SerializeToString())
+    num_nodes = len(frozen_graph.node)
+    start_time = time.time()
+
+    converter = trt.TrtGraphConverter(
+        input_graph_def=frozen_graph,
+        nodes_blacklist=output_names,
+        max_workspace_size_bytes=max_workspace_size_bytes,
+        precision_mode=precision_mode,
+        minimum_segment_size=minimum_segment_size,
+        is_dynamic_op=True,
+        maximum_cached_engines=maximum_cached_engines)
+    frozen_graph = converter.convert()
+
+    end_time = time.time()
+    print("graph_size(MB)(native_tf): %.1f" % (float(graph_size)/(1<<20)))
+    print("graph_size(MB)(trt): %.1f" %
+        (float(len(frozen_graph.SerializeToString()))/(1<<20)))
+    print("num_nodes(native_tf): %d" % num_nodes)
+    print("num_nodes(tftrt_total): %d" % len(frozen_graph.node))
+    print("num_nodes(trt_only): %d" % len([1 for n in frozen_graph.node if str(n.op)=='TRTEngineOp']))
+    print("time(s) (trt_conversion): %.4f" % (end_time - start_time))
+
+    # perform calibration for int8 precision
+    if precision_mode == 'INT8':
+        # get calibration images
+        if calib_images_dir is None:
+            raise ValueError('calib_images_dir must be provided for INT8 optimization.')
+        image_paths = glob.glob(os.path.join(calib_images_dir, '*.jpg'))
+        if len(image_paths) == 0:
+            raise ValueError('No images were found in calib_images_dir for INT8 calibration.')
+        image_paths = image_paths[:num_calib_images]
+        num_batches = len(image_paths) // calib_batch_size
+
+        def feed_dict_fn():
+            # read batch of images
+            batch_images = []
+            for image_path in image_paths[feed_dict_fn.index:feed_dict_fn.index+calib_batch_size]:
+                image = _read_image(image_path, calib_image_shape)
+                batch_images.append(image)
+            feed_dict_fn.index += calib_batch_size
+            return {INPUT_NAME+':0': np.array(batch_images)}
+        feed_dict_fn.index = 0
+
+        print('Calibrating INT8...')
         start_time = time.time()
-
-        converter = trt.TrtGraphConverter(
-            input_graph_def=frozen_graph,
-            nodes_blacklist=output_names,
-            max_workspace_size_bytes=max_workspace_size_bytes,
-            precision_mode=precision_mode,
-            minimum_segment_size=minimum_segment_size,
-            is_dynamic_op=True,
-            maximum_cached_engines=maximum_cached_engines)
-        frozen_graph = converter.convert()
-
-        end_time = time.time()
-        print("graph_size(MB)(native_tf): %.1f" % (float(graph_size)/(1<<20)))
-        print("graph_size(MB)(trt): %.1f" %
-            (float(len(frozen_graph.SerializeToString()))/(1<<20)))
-        print("num_nodes(native_tf): %d" % num_nodes)
-        print("num_nodes(tftrt_total): %d" % len(frozen_graph.node))
-        print("num_nodes(trt_only): %d" % len([1 for n in frozen_graph.node if str(n.op)=='TRTEngineOp']))
-        print("time(s) (trt_conversion): %.4f" % (end_time - start_time))
-
-        # perform calibration for int8 precision
-        if precision_mode == 'INT8':
-            # get calibration images
-            if calib_images_dir is None:
-                raise ValueError('calib_images_dir must be provided for INT8 optimization.')
-            image_paths = glob.glob(os.path.join(calib_images_dir, '*.jpg'))
-            if len(image_paths) == 0:
-                raise ValueError('No images were found in calib_images_dir for INT8 calibration.')
-            image_paths = image_paths[:num_calib_images]
-            num_batches = len(image_paths) // calib_batch_size
-
-            def feed_dict_fn():
-                # read batch of images
-                batch_images = []
-                for image_path in image_paths[feed_dict_fn.index:feed_dict_fn.index+calib_batch_size]:
-                    image = _read_image(image_path, calib_image_shape)
-                    batch_images.append(image)
-                feed_dict_fn.index += calib_batch_size
-                return {INPUT_NAME+':0': np.array(batch_images)}
-            feed_dict_fn.index = 0
-
-            print('Calibrating INT8...')
-            start_time = time.time()
-            frozen_graph = converter.calibrate(
-                fetch_names=[x + ':0' for x in output_names],
-                num_runs=num_batches,
-                feed_dict_fn=feed_dict_fn)
-            calibration_time = time.time() - start_time
-            print("time(s) (trt_calibration): %.4f" % calibration_time)
+        frozen_graph = converter.calibrate(
+            fetch_names=[x + ':0' for x in output_names],
+            num_runs=num_batches,
+            feed_dict_fn=feed_dict_fn)
+        calibration_time = time.time() - start_time
+        print("time(s) (trt_calibration): %.4f" % calibration_time)
 
     return frozen_graph
 

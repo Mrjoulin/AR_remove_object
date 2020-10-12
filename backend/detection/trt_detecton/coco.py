@@ -10,7 +10,7 @@ COCO_CLASSES_LIST = [
     'motorcycle',
     'airplane',
     'bus',
-    'train',
+    'data',
     'truck',
     'boat',
     'traffic light',

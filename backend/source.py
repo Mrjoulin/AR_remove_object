@@ -11,7 +11,7 @@ from backend.detection.trt_detecton.coco import *
 def decode_input_image(image):
     try:
         decode_img = base64.b64decode(image.encode('utf-8'))
-        path = 'backend/object.jpg'
+        path = 'images/object.jpg'
         with open(path, 'wb') as write_file:
             write_file.write(decode_img)
         image = cv2.imread(path)

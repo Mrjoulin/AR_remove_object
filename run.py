@@ -47,6 +47,10 @@ def render_video_directory(render_directory, inpaint=True, output='./', tf=False
     for number_video in range(len(videos)):
         path = os.path.join(render_directory, videos[number_video])
         logging.info('Render file %s' % videos[number_video])
+
+        if os.path.isdir(path):
+            continue
+
         try:
             cap = cv2.VideoCapture(path)
         except:
@@ -128,7 +132,7 @@ def online_render(tf=False):
     video_size = (640, 480)
     cap = cv2.VideoCapture(0)
     if tf:
-        tensorflow_render(cap=cap, video_size=video_size)
+        tensorflow_with_trt_render(cap=cap, video_size=video_size)
     else:
         trt_render(cap=cap)
 

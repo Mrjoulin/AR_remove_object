@@ -5,7 +5,7 @@ Have you ever wanted to remove disturbing objects from photos / videos or even o
 Our application will provide you with this opportunity.
 
 ## 1. Installation
-####You can install the project in 3 ways:
+#### You can install the project in 3 ways:
 #### 1.1.1 Clone Docker image (if you have access)
 ```shell script
 docker pull joulin/blurred:latest

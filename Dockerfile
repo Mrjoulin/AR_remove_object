@@ -43,9 +43,8 @@ RUN cd /tensorflow/models/research && protoc object_detection/protos/*.proto --p
    pip3 install . && cd slim && pip3 install . && cd ..
 ENV PYTHONPATH=$PYTHONPATH:`pwd`:`pwd`/slim
 
-ADD .. .
-EXPOSE 5000
+ADD . .
+EXPOSE 5500
 
-# Return to project directory and open a terminal
-WORKDIR /mnt
-CMD /bin/bash
+# Return to project directory and run wsgi server
+CMD ["python3", "wsgi.py"]

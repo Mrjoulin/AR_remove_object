@@ -24,7 +24,7 @@ from backend.feature.track_object import plane_tracker
 from backend.inpaint.inpaint import Inpainting
 from backend.detection.trt_optimization.optimization import *
 
-# from backend.detection.trt_detecton import inference # TRT/TF inference wrappers
+# from api.detection.trt_detecton import inference # TRT/TF inference wrappers
 
 
 try:
@@ -40,8 +40,8 @@ if StrictVersion(tf.__version__) < StrictVersion('1.12.0'):
     raise ImportError('Please upgrade your TensorFlow installation to v1.12.*.')
 
 PATH_TO_CONFIG = './config.json'
-PATH_TO_FROZEN_GRAPH = "./local/tensorflow-graph/mask_rcnn_resnet50_atrous_coco_2018_01_28/frozen_inference_graph.pb"
-PATH_TO_LABELS = './local/tensorflow-graph/mscoco_label_map.pbtxt'
+PATH_TO_FROZEN_GRAPH = "./api/detection/tensorflow-graph/ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/frozen_inference_graph.pb"
+PATH_TO_LABELS = "./api/detection/tensorflow-graph/mscoco_label_map.pbtxt"
 
 RENDER = Render()
 
@@ -90,7 +90,7 @@ def trt_render(cap, video_path=None, output='./'):
         start_time = time.time()
         if ret:
             image_np = cv2.resize(image_np, tuple(args['frame_size']))
-            res = RENDER.run(image=image_np, transform=transform, objects_to_remove=[1])
+            res = RENDER.run(image=image_np, transform=transform, objects_to_remove=['all'])
             image_np = res['image']
 
             if video_path is not None:
@@ -152,7 +152,8 @@ def tensorflow_with_trt_render(cap, video_size, video=False, image=False, output
             tf_classes = tf_graph.get_tensor_by_name(CLASSES_NAME + ':0')
             tf_scores = tf_graph.get_tensor_by_name(SCORES_NAME + ':0')
             tf_num_detections = tf_graph.get_tensor_by_name(NUM_DETECTIONS_NAME + ':0')
-            th_masks = tf_graph.get_tensor_by_name(MASKS_NAME + ':0')
+            if args["use_masks_objects"]:
+                th_masks = tf_graph.get_tensor_by_name(MASKS_NAME + ':0')
 
             if inpaint:
                 inpaint_session = Inpainting(session=sess)
@@ -439,11 +440,11 @@ def tensorflow_render(cap, video_size, render_image=False, render_video=False, n
 
                 def get_screen(event, x, y, flags, param):
                     if event == cv2.EVENT_LBUTTONDBLCLK:
-                        screens = os.listdir('backend/screens')
+                        screens = os.listdir('api/screens')
                         screens.sort()
                         number_screen = screens[-1].split('_')[1].split('.')[0]
                         logging.info('\n\n    Save screen with number %s\n' % number_screen)
-                        cv2.imwrite('backend/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
+                        cv2.imwrite('api/screens/screenshot_%s.png' % (int(number_screen) + 1), image_np)
 
                 cv2.setMouseCallback('object detection', get_screen)
 
