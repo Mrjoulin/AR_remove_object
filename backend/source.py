@@ -1,199 +1,50 @@
-import json
-import time
+import os
+import cv2
 import base64
+import random
 import logging
-import numpy as np
-from PIL import Image
-from backend.generation_pattern.generate_pattern import get_generative_background
+
+# Local modules
+from backend.detection.trt_detecton.coco import *
 
 
-def parse_input_json(img_rect_json):
-    img_rect = json.loads(img_rect_json)
-    img = base64.b64decode(img_rect["img"])
-    rects = img_rect["shapes"]
-    logging.info("img:" + str(img))
-    logging.info("rect:" + str(rects))
-    return img, rects
-
-
-def get_background_line_coordinates(img, bg_w, bg_h, current_obj, objects):
-    flag = True
-    if current_obj['y'] >= bg_h:
-        for object in objects:
-            if object['x'] + object['width'] > current_obj['x'] or object['x'] < current_obj['x'] + \
-                    current_obj['width']:
-                if object['y'] + object['height'] < current_obj['y']:
-                    if current_obj['y'] - object['y'] - object['height'] < bg_h:
-                        flag = False
-                elif object['y'] < current_obj['y']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] - bg_h
-            return left, top
-    flag = True
-    if img.width - current_obj['x'] - current_obj['width'] >= bg_w:
-        for object in objects:
-            if object['y'] + object['height'] > current_obj['y'] or object['y'] < current_obj['y'] + \
-                    current_obj['height']:
-                if object['x'] > current_obj['x'] + current_obj['width']:
-                    if object['x'] - current_obj['x'] - current_obj['width'] < bg_w:
-                        flag = False
-                elif object['x'] + object['width'] > current_obj['x'] + current_obj['width']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] + current_obj['width']
-            top = current_obj['y']
-            return left, top
-    flag = True
-    if img.height - current_obj['y'] - current_obj['height'] >= bg_h:
-        for object in objects:
-            if object['x'] + object['width'] > current_obj['x'] or object['x'] < current_obj['x'] + \
-                    current_obj['width']:
-                if object['y'] > current_obj['y'] + current_obj['height']:
-                    if object['y'] - current_obj['y'] - current_obj['height'] < bg_h:
-                        flag = False
-                elif object['y'] + object['height'] > current_obj['y'] + current_obj['height']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] + current_obj['height']
-            return left, top
-    flag = True
-    if current_obj['x'] >= bg_w:
-        for object in objects:
-            if object['y'] + object['height'] > current_obj['y'] or object['y'] < current_obj['y'] + \
-                    current_obj['height']:
-                if object['x'] + object['width'] < current_obj['x']:
-                    if current_obj['x'] - object['x'] - object['width'] < bg_w:
-                        flag = False
-                elif object['x'] < current_obj['x']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] - bg_w
-            top = current_obj['y']
-            return left, top
-    return -1, -1
-
-
-def get_background_coordinates(img, bg_w, bg_h, current_obj, objects):
-    flag = True
-    if current_obj['y'] >= bg_h:
-        for obj in objects:
-            if obj['x'] + obj['width'] > current_obj['x'] or obj['x'] < current_obj['x'] + current_obj['width']:
-                if obj['y'] + obj['height'] < current_obj['y']:
-                    if current_obj['y'] - obj['y'] - obj['height'] < bg_h:
-                        flag = False
-                elif obj['y'] < current_obj['y']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] - bg_h
-            return left, top
-    flag = True
-    if img.width - current_obj['x'] - current_obj['width'] >= bg_w:
-        for obj in objects:
-            if obj['y'] + obj['height'] > current_obj['y'] or obj['y'] < current_obj['y'] + current_obj['height']:
-                if obj['x'] > current_obj['x'] + current_obj['width']:
-                    if obj['x'] - current_obj['x'] - current_obj['width'] < bg_w:
-                        flag = False
-                elif obj['x'] + obj['width'] > current_obj['x'] + current_obj['width']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] + current_obj['width']
-            top = current_obj['y']
-            return left, top
-    flag = True
-    if img.height - current_obj['y'] - current_obj['height'] >= bg_h:
-        for obj in objects:
-            if obj['x'] + obj['width'] > current_obj['x'] or obj['x'] < current_obj['x'] + current_obj['width']:
-                if obj['y'] > current_obj['y'] + current_obj['height']:
-                    if obj['y'] - current_obj['y'] - current_obj['height'] < bg_h:
-                        flag = False
-                elif obj['y'] + obj['height'] > current_obj['y'] + current_obj['height']:
-                    flag = False
-        if flag:
-            left = current_obj['x']
-            top = current_obj['y'] + current_obj['height']
-            return left, top
-    flag = True
-    if current_obj['x'] >= bg_w:
-        for obj in objects:
-            if obj['y'] + obj['height'] > current_obj['y'] or obj['y'] < current_obj['y'] + current_obj['height']:
-                if obj['x'] + obj['width'] < current_obj['x']:
-                    if current_obj['x'] - obj['x'] - obj['width'] < bg_w:
-                        flag = False
-                elif obj['x'] < current_obj['x']:
-                    flag = False
-        if flag:
-            left = current_obj['x'] - bg_w
-            top = current_obj['y']
-            return left, top
-    return -1, -1
-
-
-def save_background_image(img, objects, object, object_class, number_object, bg_w, bg_h):
-    left, top = get_background_coordinates(img, bg_w, bg_h, object, objects)
-    logging.info('image size: ' + str(img.size) + ' background coordinates: ' + str(left) + ' ' + str(top))
-    if left != -1:
-        bg = img.crop((
-            left,
-            top,
-            bg_w + left,
-            bg_h + top))
-        path = f'backend/background/background_{str(number_object)}.png'
-
-        generate_background = True
-    else:
-        bg = Image.open('backend/background/grid_background.jpg')
-        path = f'backend/out/1/out_{str(object_class)}.jpg'
-
-        generate_background = False
-
-    bg.save(path)
-
-    return generate_background, path
-
-
-def get_image_background_fragment(_img, objects, objects_class):
-    #test_json = open('test.json', 'r').read()
-    #_img, objects = parse_input_json(test_json)
+def decode_input_image(image):
     try:
-        img_arr = base64.b64decode(_img)
-        filename = 'backend/object.jpg'  # I assume you have a way of picking unique filenames
-        with open(filename, 'wb') as f:
-            f.write(img_arr)
-        img = Image.open(filename)
+        decode_img = base64.b64decode(image.encode('utf-8'))
+        path = 'backend/object.jpg'
+        with open(path, 'wb') as write_file:
+            write_file.write(decode_img)
+        image = cv2.imread(path)
+        os.remove(path)
     except:
-        img = Image.fromarray(_img)
-
-    number_object = 0
-    for object, object_class in zip(objects, objects_class):
-        object_width = int(object['width'])
-        object_height = int(object['height'])
-        logging.info('object: height: ' + str(object_height) + " width: " + str(object_width) + " class: " + str(object_class))
-
-        # Crop background is 20 % of size object
-        background_width = round(object_width * 0.25)
-        background_height = round(object_height * 0.25)
-
-        logging.info('background size: ' + str(background_width) + ' ' + str(background_height))
-
-        gen_bg, path = save_background_image(img, objects, object, object_class,
-                                             number_object, background_width, background_height)
-        if gen_bg:
-            get_generative_background(path, object_width, object_height, object_class)
-
-        number_object += 1
+        pass
+    return image
 
 
-def test_crop():
-    #testing croping image
-    start_time = time.time()
-    img = Image.open('backend/test_img.jpg')
-    arr = np.array(img)
+def get_mask_objects(image, objects):
+    mask_np = np.zeros(image.shape, np.uint8)
+    h, w = image.shape[:2]
 
-    test_objects = [
+    for obj in objects:
+        if 'mask' in obj:
+            mask_np = mask_np + cv2.resize(obj.pop('mask'), (w, h)).reshape((h, w, 1))
+        else:
+            mask_np[int(obj['position']['y_min'] * h):int(obj['position']['y_max'] * h),
+                    int(obj['position']['x_min'] * w):int(obj['position']['x_max'] * w)] = 1
+
+    return mask_np, objects
+
+
+def merge_inpaint_image_to_initial(initial_image, inpaint_mask, inpaint_image):
+    initial_size = (initial_image.shape[1], initial_image.shape[0])
+    big_mask = cv2.resize(inpaint_mask, initial_size)
+    inpaint_objects = cv2.resize(inpaint_image, initial_size) * big_mask
+    image_np = initial_image * (1 - big_mask)
+    return image_np + inpaint_objects
+
+
+def test_objects():
+    objects = [
         {
             'x': 20,
             'y': 50,
@@ -220,6 +71,4 @@ def test_crop():
         }
     ]
     class_obj = [1001, 1002, 1003, 1004]
-    get_image_background_fragment(arr, test_objects, class_obj)
-    logging.info("--- %s seconds ---" % (time.time() - start_time))
-
+    return objects, class_obj

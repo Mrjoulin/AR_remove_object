@@ -1,0 +1,127 @@
+/* Rectangle */
+
+.title_rectangle{
+    position: relative;
+    left: 30%;
+    width: 550px;
+    height: 75px;
+    margin-top: 5%;
+    margin-bottom: 5%;
+    background: rgba(180, 112, 204, 0.89);
+    border-radius: 25px;
+}
+
+/* TRUE THANOS */
+
+#title {
+    position: absolute;
+    left: 30%;
+    width: 252px;
+    height: 33px;
+    font-family: Montserrat;
+    font-style: normal;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 34px;
+    display: flex;
+    align-items: center;
+    text-align: center;
+    letter-spacing: 0.1em;
+    color: #FFFFFF;
+}
+
+.text-block{
+    position: relative;
+    left: 26.5%;
+    height: 82px;
+    margin-top: 5%;
+    margin-bottom: 5%;
+    margin-right: 0;
+}
+
+/* Polygon */
+#block{
+    position: absolute;
+    content: '';
+    border: 15px solid transparent; /* Прозрачные границы */
+    border-left: 33px solid #13C0CB;
+    top: 20px;
+}
+/* Стирайте только нужные объекты с видео или online */
+
+#main-text {
+    position: absolute;
+    width: 580px;
+    height: 82px;
+    top: -13px;
+    left: 40px;
+
+    font-family: Montserrat ;
+    font-style: normal;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 34px;
+    display: flex;
+    align-items: center;
+    text-align: center;
+    letter-spacing: 0.1em;
+
+    color: #000000;
+}
+
+.button-block{
+    position: relative;
+    left: 42%;
+    width: 250px;
+}
+
+/* Видео */
+
+#video-button-text {
+    position: absolute;
+    width: 225px;
+    height: 75px;
+
+    font-family: Montserrat;
+    font-style: normal;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 34px;
+    align-items: center;
+    text-decoration:none;
+    text-align: center;
+    letter-spacing: 0.1em;
+
+    background: #13C0CB;
+    box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
+    border-radius: 25px;
+    border: 0;
+
+    color: rgba(255, 255, 255, 0.89);
+}
+
+/* Online */
+
+#online-button-text {
+    position: absolute;
+    width: 225px;
+    height: 75px;
+    top: 124px;
+
+    font-family: Montserrat;
+    font-style: normal;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 34px;
+    align-items: center;
+    text-align: center;
+    text-decoration:none;
+
+    letter-spacing: 0.1em;
+    background: #13C0CB;
+    box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
+    border-radius: 25px;
+    border: 0;
+
+    color: rgba(255, 255, 255, 0.89);
+}

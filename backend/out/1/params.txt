@@ -1,4 +1,0 @@
-PatchSize: 5 
-OverlapSize: 1 
-Mirror Vert: 0 
-Mirror Hor: 0

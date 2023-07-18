@@ -1,0 +1,25 @@
+{
+  "model_config": {
+    "model_name": "mask_rcnn_resnet50_atrous_coco",
+    "input_dir": "./local/tensorflow-graph",
+    "batch_size": 1,
+    "override_nms_score_threshold": 0.5
+  },
+  "optimization_config": {
+    "use_trt": true,
+    "use_masks": true,
+    "precision_mode": "FP32",
+    "max_workspace_size_bytes": 1395864371,
+    "output_path": "local/engine/engine.buf"
+  },
+  "run_config": {
+    "frame_size": [640, 480],
+    "percent_detection": 0.5,
+    "num_warmup_iterations": 1,
+    "inpaint": true,
+    "test_image_inpaint_path": "server/imgs/inpaint.png",
+    "test_mask_inpaint_path": "server/imgs/mask.png",
+    "use_masks_objects": true,
+    "reduction_ratio": 2
+  }
+}
